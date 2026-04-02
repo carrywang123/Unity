@@ -1,0 +1,297 @@
+// ============================================================
+// 文件名：UIManager.cs
+// 功  能：UI面板统一管理（面板切换、消息弹窗、加载动画）
+// 作  者：化工虚拟仿真实验平台
+// ============================================================
+
+using System;
+using System.Collections;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace ChemLab.Managers
+{
+    public class UIManager : MonoBehaviour
+    {
+        // ── 单例 ──────────────────────────────────────────────
+        public static UIManager Instance { get; private set; }
+
+        // ── 面板引用（在Inspector中绑定） ─────────────────────
+        [Header("=== 主要面板 ===")]
+        [Tooltip("登录面板")]
+        public GameObject loginPanel;
+
+        [Tooltip("注册面板")]
+        public GameObject registerPanel;
+
+        [Tooltip("管理员面板")]
+        public GameObject adminPanel;
+
+        [Tooltip("普通用户面板")]
+        public GameObject userPanel;
+
+        // ── 弹窗组件 ──────────────────────────────────────────
+        [Header("=== 消息弹窗 ===")]
+        [Tooltip("消息弹窗根节点")]
+        public GameObject messageBox;
+
+        [Tooltip("弹窗标题文本")]
+        public Text messageTitle;
+
+        [Tooltip("弹窗内容文本")]
+        public Text messageContent;
+
+        [Tooltip("弹窗确认按钮")]
+        public Button messageConfirmBtn;
+
+        [Tooltip("弹窗取消按钮（可选）")]
+        public Button messageCancelBtn;
+
+        // ── 加载遮罩 ──────────────────────────────────────────
+        [Header("=== 加载遮罩 ===")]
+        [Tooltip("加载中遮罩")]
+        public GameObject loadingMask;
+
+        [Tooltip("加载提示文本")]
+        public Text loadingText;
+
+        // ── 顶部提示条 ────────────────────────────────────────
+        [Header("=== 顶部提示条 ===")]
+        [Tooltip("顶部Toast提示根节点")]
+        public GameObject toastPanel;
+
+        [Tooltip("Toast文本")]
+        public Text toastText;
+
+        // ── 背景 ──────────────────────────────────────────────
+        [Header("=== 背景 ===")]
+        [Tooltip("主背景图")]
+        public Image backgroundImage;
+
+        // ── 私有变量 ──────────────────────────────────────────
+        private Action _onConfirmCallback;
+        private Action _onCancelCallback;
+        private Coroutine _toastCoroutine;
+
+        // ─────────────────────────────────────────────────────
+        #region Unity 生命周期
+        // ─────────────────────────────────────────────────────
+
+        private void Awake()
+        {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+            DontDestroyOnLoad(gameObject);
+        }
+
+        private void Start()
+        {
+            // 初始状态：只显示登录面板
+            ShowLoginPanel();
+
+            // 绑定弹窗按钮事件
+            if (messageConfirmBtn != null)
+                messageConfirmBtn.onClick.AddListener(OnMessageConfirm);
+            if (messageCancelBtn != null)
+                messageCancelBtn.onClick.AddListener(OnMessageCancel);
+
+            // 初始隐藏弹窗和加载遮罩
+            if (messageBox   != null) messageBox.SetActive(false);
+            if (loadingMask  != null) loadingMask.SetActive(false);
+            if (toastPanel   != null) toastPanel.SetActive(false);
+        }
+
+        #endregion
+
+        // ─────────────────────────────────────────────────────
+        #region 面板切换
+        // ─────────────────────────────────────────────────────
+
+        /// <summary>隐藏所有主面板</summary>
+        private void HideAllPanels()
+        {
+            if (loginPanel    != null) loginPanel.SetActive(false);
+            if (registerPanel != null) registerPanel.SetActive(false);
+            if (adminPanel    != null) adminPanel.SetActive(false);
+            if (userPanel     != null) userPanel.SetActive(false);
+        }
+
+        /// <summary>显示登录面板</summary>
+        public void ShowLoginPanel()
+        {
+            HideAllPanels();
+            if (loginPanel != null)
+            {
+                loginPanel.SetActive(true);
+                // 通知登录面板刷新
+                loginPanel.GetComponent<UI.LoginUI>()?.OnPanelShow();
+            }
+        }
+
+        /// <summary>显示注册面板</summary>
+        public void ShowRegisterPanel()
+        {
+            HideAllPanels();
+            if (registerPanel != null)
+            {
+                registerPanel.SetActive(true);
+                registerPanel.GetComponent<UI.RegisterUI>()?.OnPanelShow();
+            }
+        }
+
+        /// <summary>显示管理员面板</summary>
+        public void ShowAdminPanel()
+        {
+            HideAllPanels();
+            if (adminPanel != null)
+            {
+                adminPanel.SetActive(true);
+                adminPanel.GetComponent<UI.AdminPanelUI>()?.OnPanelShow();
+            }
+        }
+
+        /// <summary>显示普通用户面板</summary>
+        public void ShowUserPanel()
+        {
+            HideAllPanels();
+            if (userPanel != null)
+            {
+                userPanel.SetActive(true);
+                userPanel.GetComponent<UI.UserPanelUI>()?.OnPanelShow();
+            }
+        }
+
+        /// <summary>根据当前登录用户角色跳转到对应面板</summary>
+        public void NavigateByRole()
+        {
+            var user = DataManager.Instance.CurrentUser;
+            if (user == null)
+            {
+                ShowLoginPanel();
+                return;
+            }
+
+            if (user.role == Models.UserRole.Admin)
+                ShowAdminPanel();
+            else
+                ShowUserPanel();
+        }
+
+        #endregion
+
+        // ─────────────────────────────────────────────────────
+        #region 消息弹窗
+        // ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// 显示信息弹窗（仅确认按钮）
+        /// </summary>
+        public void ShowMessage(string title, string content, Action onConfirm = null)
+        {
+            if (messageBox == null) return;
+
+            if (messageTitle   != null) messageTitle.text   = title;
+            if (messageContent != null) messageContent.text = content;
+
+            _onConfirmCallback = onConfirm;
+            _onCancelCallback  = null;
+
+            if (messageCancelBtn != null) messageCancelBtn.gameObject.SetActive(false);
+            if (messageConfirmBtn != null)
+            {
+                messageConfirmBtn.gameObject.SetActive(true);
+                var btnText = messageConfirmBtn.GetComponentInChildren<Text>();
+                if (btnText != null) btnText.text = "确 定";
+            }
+
+            messageBox.SetActive(true);
+        }
+
+        /// <summary>
+        /// 显示确认弹窗（确认 + 取消按钮）
+        /// </summary>
+        public void ShowConfirm(string title, string content,
+                                Action onConfirm, Action onCancel = null)
+        {
+            if (messageBox == null) return;
+
+            if (messageTitle   != null) messageTitle.text   = title;
+            if (messageContent != null) messageContent.text = content;
+
+            _onConfirmCallback = onConfirm;
+            _onCancelCallback  = onCancel;
+
+            if (messageCancelBtn  != null) messageCancelBtn.gameObject.SetActive(true);
+            if (messageConfirmBtn != null) messageConfirmBtn.gameObject.SetActive(true);
+
+            messageBox.SetActive(true);
+        }
+
+        private void OnMessageConfirm()
+        {
+            if (messageBox != null) messageBox.SetActive(false);
+            _onConfirmCallback?.Invoke();
+            _onConfirmCallback = null;
+        }
+
+        private void OnMessageCancel()
+        {
+            if (messageBox != null) messageBox.SetActive(false);
+            _onCancelCallback?.Invoke();
+            _onCancelCallback = null;
+        }
+
+        #endregion
+
+        // ─────────────────────────────────────────────────────
+        #region 加载遮罩
+        // ─────────────────────────────────────────────────────
+
+        public void ShowLoading(string text = "加载中...")
+        {
+            if (loadingMask == null) return;
+            if (loadingText != null) loadingText.text = text;
+            loadingMask.SetActive(true);
+        }
+
+        public void HideLoading()
+        {
+            if (loadingMask != null) loadingMask.SetActive(false);
+        }
+
+        #endregion
+
+        // ─────────────────────────────────────────────────────
+        #region Toast 提示
+        // ─────────────────────────────────────────────────────
+
+        /// <summary>
+        /// 显示顶部Toast提示（自动消失）
+        /// </summary>
+        public void ShowToast(string message, float duration = 2.5f)
+        {
+            if (toastPanel == null) return;
+
+            if (_toastCoroutine != null)
+                StopCoroutine(_toastCoroutine);
+
+            _toastCoroutine = StartCoroutine(ToastCoroutine(message, duration));
+        }
+
+        private IEnumerator ToastCoroutine(string message, float duration)
+        {
+            if (toastText  != null) toastText.text = message;
+            if (toastPanel != null) toastPanel.SetActive(true);
+
+            yield return new WaitForSeconds(duration);
+
+            if (toastPanel != null) toastPanel.SetActive(false);
+        }
+
+        #endregion
+    }
+}
