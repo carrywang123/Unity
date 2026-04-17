@@ -8,6 +8,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using ChemLab.Utils;
 
 namespace ChemLab.Managers
 {
@@ -103,9 +104,49 @@ namespace ChemLab.Managers
             if (messageBox   != null) messageBox.SetActive(false);
             if (loadingMask  != null) loadingMask.SetActive(false);
             if (toastPanel   != null) toastPanel.SetActive(false);
+
+            // 全局：给所有 Button 自动注入 hover 光标切换
+            UICursor.Preload();
+            InstallCursorHoverForAllButtons();
         }
 
         #endregion
+
+        private void InstallCursorHoverForAllButtons()
+        {
+            // 包含 inactive（面板切换时常常先 SetActive(false)）
+            var buttons = Resources.FindObjectsOfTypeAll<Button>();
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                var btn = buttons[i];
+                if (btn == null) continue;
+                if (btn.gameObject == null) continue;
+                if (!btn.gameObject.scene.IsValid() || !btn.gameObject.scene.isLoaded) continue;
+
+                // 不给不可交互的按钮强行挂（仍可手动挂 UICursorHoverTarget 覆盖）
+                if (!btn.IsInteractable()) continue;
+
+                var hover = btn.GetComponent<UICursorHoverTarget>();
+                if (hover == null)
+                    hover = btn.gameObject.AddComponent<UICursorHoverTarget>();
+
+                // 个别按钮：父物体的父物体名为 Row，则不希望 hover 上移（但仍希望手型光标）
+                if (IsGrandParentNamedRow(btn.transform))
+                {
+                    hover.hoverMoveUp = 0f;
+                }
+            }
+        }
+
+        private static bool IsGrandParentNamedRow(Transform t)
+        {
+            if (t == null) return false;
+            var parent = t.parent;
+            if (parent == null) return false;
+            var grandParent = parent.parent;
+            if (grandParent == null) return false;
+            return string.Equals(grandParent.name, "Row", StringComparison.Ordinal);
+        }
 
         // ─────────────────────────────────────────────────────
         #region 面板切换
@@ -194,6 +235,8 @@ namespace ChemLab.Managers
         {
             if (messageBox == null) return;
 
+            ResetMessageBoxVisualState();
+
             if (messageTitle   != null) messageTitle.text   = title;
             if (messageContent != null) messageContent.text = content;
 
@@ -219,6 +262,8 @@ namespace ChemLab.Managers
         {
             if (messageBox == null) return;
 
+            ResetMessageBoxVisualState();
+
             if (messageTitle   != null) messageTitle.text   = title;
             if (messageContent != null) messageContent.text = content;
 
@@ -229,6 +274,19 @@ namespace ChemLab.Managers
             if (messageConfirmBtn != null) messageConfirmBtn.gameObject.SetActive(true);
 
             messageBox.SetActive(true);
+        }
+
+        private void ResetMessageBoxVisualState()
+        {
+            // 如果弹窗物体上挂了 CanvasGroup/动画脚本，可能在上次 FadeOut 后 alpha=0、不可交互；
+            // 这里强制复位，确保再次 Show 时可见且可点击。
+            var cg = messageBox.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
         }
 
         private void OnMessageConfirm()

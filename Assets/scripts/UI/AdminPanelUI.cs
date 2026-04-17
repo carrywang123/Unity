@@ -8,47 +8,51 @@
 // ============================================================
 
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
+using TMPro;
 using ChemLab.Managers;
 using ChemLab.Models;
+using ChemLab.Labs;
+using ChemLab.Utils;
 
 namespace ChemLab.UI
 {
     public class AdminPanelUI : MonoBehaviour
     {
+        private static readonly Color TOGGLE_LABEL_SELECTED = new Color(0x7F / 255f, 0xD6 / 255f, 0xFD / 255f, 1f);
+        private static readonly Color TOGGLE_LABEL_NORMAL = Color.white;
+
         // ── 顶部信息 ──────────────────────────────────────────
         [Header("=== 顶部信息 ===")]
         public Text welcomeText;
         public Text loginTimeText;
         public Button logoutBtn;
 
-        // ── Tab 切换 ──────────────────────────────────────────
-        [Header("=== Tab 按钮 ===")]
-        public Button tabOverviewBtn;
-        public Button tabUserBtn;
-        public Button tabRecordBtn;
+        // ── 页面切换（Toggle） ─────────────────────────────────
+        [Header("=== 页面切换（Toggle） ===")]
+        public Toggle toggleUser;
+        public Toggle toggleRecord;
 
-        // ── 各 Tab 面板 ───────────────────────────────────────
-        [Header("=== Tab 面板 ===")]
-        public GameObject overviewPanel;
+        // ── 各页面面板 ─────────────────────────────────────────
+        [Header("=== 页面面板 ===")]
         public GameObject userManagePanel;
         public GameObject recordManagePanel;
-
-        // ── 概览面板 ──────────────────────────────────────────
-        [Header("=== 概览数据 ===")]
-        public Text totalUserText;
-        public Text activeUserText;
-        public Text totalRecordText;
-        public Text completedRecordText;
-        public Text avgScoreText;
 
         // ── 用户管理面板 ──────────────────────────────────────
         [Header("=== 用户管理 ===")]
         public Transform userListContent;       // ScrollView Content
         public GameObject userItemPrefab;       // 用户列表Item预制体
-        public InputField searchUserInput;
+        public InputField searchUserIdInput;    // 用户ID
+        public InputField searchRealNameInput;  // 真实姓名（模糊）
+        public Dropdown   searchRoleDropdown;   // 角色：全部/管理员/普通用户
+        public TMP_InputField searchCreateStartInput; // 创建时间起（可输入日期或日期时间）
+        public TMP_InputField searchCreateEndInput;   // 创建时间止（可输入日期或日期时间）
         public Button searchUserBtn;
+        public Button resetUserFilterBtn;
         public Button addUserBtn;
 
         // 添加用户子面板
@@ -66,7 +70,11 @@ namespace ChemLab.UI
         // 重置密码子面板
         [Header("=== 重置密码子面板 ===")]
         public GameObject resetPasswordSubPanel;
-        public Text       resetTargetUserText;
+        public Text       resetUserIdText;      // 显示ID
+        [FormerlySerializedAs("resetRealNameText")]
+        public InputField resetRealNameInput;   // 可修改真实姓名（与注册校验一致）
+        public InputField resetEmailInput;      // 可修改邮箱
+        public Dropdown   resetRoleDropdown;    // 可修改角色（0=管理员，1=普通用户）
         public InputField newPasswordInput;
         public Button     confirmResetBtn;
         public Button     cancelResetBtn;
@@ -76,18 +84,29 @@ namespace ChemLab.UI
         [Header("=== 实验记录管理 ===")]
         public Transform recordListContent;
         public GameObject recordItemPrefab;
+        [Tooltip("按 userId 筛选（可精确或包含）")]
+        public InputField searchRecordUserIdInput;
+
+        [Tooltip("实验名称下拉框（自动从记录中生成选项）")]
+        public Dropdown experimentNameDropdown;
+
+        [Tooltip("起始日期/时间（TMP_InputField，支持 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss）")]
+        public TMP_InputField recordStartInput;
+
+        [Tooltip("结束日期/时间（TMP_InputField，支持 yyyy-MM-dd 或 yyyy-MM-dd HH:mm:ss）")]
+        public TMP_InputField recordEndInput;
+
+        [Tooltip("（可选）通用关键词，匹配 recordId / userId / 实验名")]
         public InputField searchRecordInput;
         public Button     searchRecordBtn;
+        public Button     resetRecordFilterBtn;
         public Text       recordCountText;
 
         // ── 私有变量 ──────────────────────────────────────────
         private List<UserModel>       _allUsers   = new List<UserModel>();
         private List<ExperimentRecord> _allRecords = new List<ExperimentRecord>();
         private string _pendingResetUserId = "";
-
-        // Tab颜色
-        private static readonly Color TAB_ACTIVE   = new Color(0.2f, 0.5f, 0.9f);
-        private static readonly Color TAB_INACTIVE  = new Color(0.4f, 0.4f, 0.4f);
+        private LabManifest _labManifest;
 
         // ─────────────────────────────────────────────────────
         #region Unity 生命周期
@@ -98,13 +117,28 @@ namespace ChemLab.UI
             // 顶部按钮
             if (logoutBtn != null) logoutBtn.onClick.AddListener(OnLogout);
 
-            // Tab按钮
-            if (tabOverviewBtn != null) tabOverviewBtn.onClick.AddListener(() => SwitchTab(0));
-            if (tabUserBtn     != null) tabUserBtn.onClick.AddListener(()     => SwitchTab(1));
-            if (tabRecordBtn   != null) tabRecordBtn.onClick.AddListener(()   => SwitchTab(2));
+            // 角色下拉框选项（用代码生成）
+            InitRoleDropdownOptions();
+            InitEditRoleDropdownOptions();
+            InitAddRoleDropdownOptions();
+
+            // 页面切换（Toggle）
+            if (toggleUser != null)
+                toggleUser.onValueChanged.AddListener(isOn =>
+                {
+                    UpdateToggleLabelColor(toggleUser, isOn);
+                    if (isOn) SwitchPage(0);
+                });
+            if (toggleRecord != null)
+                toggleRecord.onValueChanged.AddListener(isOn =>
+                {
+                    UpdateToggleLabelColor(toggleRecord, isOn);
+                    if (isOn) SwitchPage(1);
+                });
 
             // 用户管理
             if (searchUserBtn != null) searchUserBtn.onClick.AddListener(OnSearchUser);
+            if (resetUserFilterBtn != null) resetUserFilterBtn.onClick.AddListener(OnResetUserFilters);
             if (addUserBtn    != null) addUserBtn.onClick.AddListener(OnShowAddUserPanel);
 
             // 添加用户子面板
@@ -117,10 +151,54 @@ namespace ChemLab.UI
 
             // 实验记录
             if (searchRecordBtn != null) searchRecordBtn.onClick.AddListener(OnSearchRecord);
+            if (resetRecordFilterBtn != null) resetRecordFilterBtn.onClick.AddListener(OnResetRecordFilters);
 
             // 初始隐藏子面板
             if (addUserSubPanel       != null) addUserSubPanel.SetActive(false);
             if (resetPasswordSubPanel != null) resetPasswordSubPanel.SetActive(false);
+
+            // 初始化 Toggle Label 颜色（避免默认状态颜色不正确）
+            if (toggleUser != null) UpdateToggleLabelColor(toggleUser, toggleUser.isOn);
+            if (toggleRecord != null) UpdateToggleLabelColor(toggleRecord, toggleRecord.isOn);
+
+            // 实验清单（用于实验名称下拉框配置）
+            _labManifest = Resources.Load<LabManifest>("LabManifest");
+        }
+
+        private void InitAddRoleDropdownOptions()
+        {
+            if (addRoleDropdown == null) return;
+
+            addRoleDropdown.ClearOptions();
+            // 约定：0=普通用户，1=管理员（与 OnConfirmAddUser 的 value 判断一致）
+            addRoleDropdown.AddOptions(new List<string> { "普通用户", "管理员" });
+            addRoleDropdown.value = 0;
+            addRoleDropdown.RefreshShownValue();
+        }
+
+        private void InitRoleDropdownOptions()
+        {
+            if (searchRoleDropdown == null) return;
+
+            searchRoleDropdown.ClearOptions();
+            searchRoleDropdown.AddOptions(new List<string>
+            {
+                "全部",
+                "管理员",
+                "普通用户"
+            });
+            searchRoleDropdown.value = 0;
+            searchRoleDropdown.RefreshShownValue();
+        }
+
+        private void InitEditRoleDropdownOptions()
+        {
+            if (resetRoleDropdown == null) return;
+
+            resetRoleDropdown.ClearOptions();
+            resetRoleDropdown.AddOptions(new List<string> { "管理员", "普通用户" });
+            resetRoleDropdown.value = 1;
+            resetRoleDropdown.RefreshShownValue();
         }
 
         #endregion
@@ -137,68 +215,50 @@ namespace ChemLab.UI
             if (welcomeText  != null) welcomeText.text  = $"管理员：{user.realName}（{user.username}）";
             if (loginTimeText != null) loginTimeText.text = $"登录时间：{user.lastLoginTime}";
 
-            // 默认显示概览Tab
-            SwitchTab(0);
+            // 默认显示“用户数据”
+            if (toggleUser != null) toggleUser.isOn = true;
+            if (toggleUser != null) UpdateToggleLabelColor(toggleUser, toggleUser.isOn);
+            if (toggleRecord != null) UpdateToggleLabelColor(toggleRecord, toggleRecord.isOn);
+            SwitchPage(0);
         }
 
         #endregion
 
         // ─────────────────────────────────────────────────────
-        #region Tab 切换
+        #region 页面切换（Toggle）
         // ─────────────────────────────────────────────────────
 
-        private void SwitchTab(int index)
+        /// <summary>
+        /// 0=用户数据，1=实验记录
+        /// </summary>
+        private void SwitchPage(int index)
         {
-            if (overviewPanel     != null) overviewPanel.SetActive(index == 0);
-            if (userManagePanel   != null) userManagePanel.SetActive(index == 1);
-            if (recordManagePanel != null) recordManagePanel.SetActive(index == 2);
+            if (userManagePanel   != null) userManagePanel.SetActive(index == 0);
+            if (recordManagePanel != null) recordManagePanel.SetActive(index == 1);
 
-            SetTabColor(tabOverviewBtn, index == 0);
-            SetTabColor(tabUserBtn,     index == 1);
-            SetTabColor(tabRecordBtn,   index == 2);
+            // 同步 Toggle 状态（避免外部直接调用时状态不同步）
+            if (toggleUser != null && toggleUser.isOn != (index == 0)) toggleUser.isOn = (index == 0);
+            if (toggleRecord != null && toggleRecord.isOn != (index == 1)) toggleRecord.isOn = (index == 1);
 
-            switch (index)
-            {
-                case 0: RefreshOverview();     break;
-                case 1: RefreshUserList("");   break;
-                case 2: RefreshRecordList(""); break;
-            }
+            if (toggleUser != null) UpdateToggleLabelColor(toggleUser, toggleUser.isOn);
+            if (toggleRecord != null) UpdateToggleLabelColor(toggleRecord, toggleRecord.isOn);
+
+            if (index == 0) RefreshUserList();
+            else RefreshRecordList("");
         }
 
-        private void SetTabColor(Button btn, bool active)
+        private static void UpdateToggleLabelColor(Toggle toggle, bool isOn)
         {
-            if (btn == null) return;
-            var img = btn.GetComponent<Image>();
-            if (img != null) img.color = active ? TAB_ACTIVE : TAB_INACTIVE;
-        }
+            if (toggle == null) return;
+            var c = isOn ? TOGGLE_LABEL_SELECTED : TOGGLE_LABEL_NORMAL;
 
-        #endregion
+            // 兼容 UGUI Text
+            var text = toggle.GetComponentInChildren<Text>(true);
+            if (text != null) text.color = c;
 
-        // ─────────────────────────────────────────────────────
-        #region 概览
-        // ─────────────────────────────────────────────────────
-
-        private void RefreshOverview()
-        {
-            _allUsers   = DataManager.Instance.GetAllUsers();
-            _allRecords = DataManager.Instance.GetAllRecords();
-
-            int activeCount    = _allUsers.FindAll(u => u.isActive).Count;
-            int completedCount = _allRecords.FindAll(r => r.isCompleted).Count;
-
-            float avgScore = 0f;
-            if (completedCount > 0)
-            {
-                float total = 0f;
-                _allRecords.ForEach(r => { if (r.isCompleted) total += r.score; });
-                avgScore = total / completedCount;
-            }
-
-            if (totalUserText      != null) totalUserText.text      = $"总用户数\n{_allUsers.Count}";
-            if (activeUserText     != null) activeUserText.text     = $"活跃用户\n{activeCount}";
-            if (totalRecordText    != null) totalRecordText.text    = $"实验总数\n{_allRecords.Count}";
-            if (completedRecordText!= null) completedRecordText.text= $"已完成\n{completedCount}";
-            if (avgScoreText       != null) avgScoreText.text       = $"平均分\n{avgScore:F1}";
+            // 兼容 TMP_Text
+            var tmp = toggle.GetComponentInChildren<TMP_Text>(true);
+            if (tmp != null) tmp.color = c;
         }
 
         #endregion
@@ -207,7 +267,7 @@ namespace ChemLab.UI
         #region 用户管理
         // ─────────────────────────────────────────────────────
 
-        private void RefreshUserList(string keyword)
+        private void RefreshUserList()
         {
             _allUsers = DataManager.Instance.GetAllUsers();
 
@@ -220,17 +280,95 @@ namespace ChemLab.UI
 
             foreach (var user in _allUsers)
             {
-                // 关键词过滤
-                if (!string.IsNullOrEmpty(keyword))
-                {
-                    bool match = user.username.Contains(keyword) ||
-                                 user.realName.Contains(keyword) ||
-                                 user.email.Contains(keyword);
-                    if (!match) continue;
-                }
+                if (!MatchesUserFilter(user)) continue;
 
                 CreateUserItem(user);
             }
+        }
+
+        private bool MatchesUserFilter(UserModel user)
+        {
+            if (user == null) return false;
+
+            // ID 精确（优先）/包含（兜底）
+            string idKw = searchUserIdInput != null ? searchUserIdInput.text.Trim() : "";
+            if (!string.IsNullOrEmpty(idKw))
+            {
+                string uid = user.userId ?? "";
+                bool idMatch = uid.Equals(idKw, System.StringComparison.OrdinalIgnoreCase) ||
+                               uid.Contains(idKw);
+                if (!idMatch) return false;
+            }
+
+            // realName 模糊
+            string realNameKw = searchRealNameInput != null ? searchRealNameInput.text.Trim() : "";
+            if (!string.IsNullOrEmpty(realNameKw))
+            {
+                if (!(user.realName ?? "").Contains(realNameKw)) return false;
+            }
+
+            // role 下拉
+            if (searchRoleDropdown != null && searchRoleDropdown.value > 0)
+            {
+                // 约定：0=全部，1=管理员，2=普通用户
+                var want = searchRoleDropdown.value == 1 ? UserRole.Admin : UserRole.User;
+                if (user.role != want) return false;
+            }
+
+            // 创建时间区间（包含边界）
+            string startStr = searchCreateStartInput != null ? searchCreateStartInput.text.Trim() : "";
+            string endStr   = searchCreateEndInput   != null ? searchCreateEndInput.text.Trim()   : "";
+
+            bool hasStart = TryParseDateTimeFlexible(startStr, out var startDt);
+            bool hasEnd   = TryParseDateTimeFlexible(endStr, out var endDt);
+
+            if (hasStart || hasEnd)
+            {
+                if (!TryParseDateTimeFlexible(user.createTime, out var createDt))
+                    return false;
+
+                // 若只输入日期（无时间），则起始按 00:00:00，结束按 23:59:59.9999999
+                if (hasStart && !startStr.Contains(":")) startDt = startDt.Date;
+                if (hasEnd   && !endStr.Contains(":"))   endDt   = endDt.Date.AddDays(1).AddTicks(-1);
+
+                if (hasStart && createDt < startDt) return false;
+                if (hasEnd   && createDt > endDt)   return false;
+            }
+
+            return true;
+        }
+
+        private static string FormatDateYMD(string s)
+        {
+            if (TryParseDateTimeFlexible(s, out var dt))
+                return dt.ToString("yyyy-MM-dd");
+            return s ?? "";
+        }
+
+        private static bool TryParseDateTimeFlexible(string s, out System.DateTime dt)
+        {
+            dt = default;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+
+            // 常见格式 + 兜底 TryParse
+            string[] fmts =
+            {
+                "yyyy-MM-dd",
+                "yyyy/M/d",
+                "yyyy/MM/dd",
+                "yyyy-MM-dd HH:mm",
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy/MM/dd HH:mm",
+                "yyyy/MM/dd HH:mm:ss",
+                "yyyy-M-d HH:mm",
+                "yyyy-M-d HH:mm:ss"
+            };
+
+            var styles = DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal;
+            if (System.DateTime.TryParseExact(s, fmts, CultureInfo.InvariantCulture, styles, out dt))
+                return true;
+
+            return System.DateTime.TryParse(s, CultureInfo.CurrentCulture, styles, out dt);
         }
 
         private void CreateUserItem(UserModel user)
@@ -254,11 +392,11 @@ namespace ChemLab.UI
             var texts = item.GetComponentsInChildren<Text>();
             if (texts.Length >= 5)
             {
-                texts[0].text = user.username;
+                texts[0].text = user.userId;
                 texts[1].text = user.realName;
                 texts[2].text = user.role == UserRole.Admin ? "管理员" : "普通用户";
-                texts[3].text = user.isActive ? "正常" : "已禁用";
-                texts[4].text = user.createTime;
+                texts[3].text = user.email ?? "";
+                texts[4].text = FormatDateYMD(user.createTime);
             }
 
             // 绑定按钮
@@ -270,10 +408,10 @@ namespace ChemLab.UI
                 string btnName = btn.name.ToLower();
                 if (btnName.Contains("delete") || btnName.Contains("删除"))
                     btn.onClick.AddListener(() => OnDeleteUser(uid));
-                else if (btnName.Contains("toggle") || btnName.Contains("禁用") || btnName.Contains("启用"))
-                    btn.onClick.AddListener(() => OnToggleUser(uid));
                 else if (btnName.Contains("reset") || btnName.Contains("重置"))
-                    btn.onClick.AddListener(() => OnShowResetPassword(uid, user.username));
+                    btn.onClick.AddListener(() => OnShowResetPassword(uid));
+                else
+                    Debug.Log($"Unknown button name: {btnName}");
             }
         }
 
@@ -299,9 +437,9 @@ namespace ChemLab.UI
                 : new Color(0.85f, 0.85f, 0.85f);
 
             // 信息文本
-            string roleStr   = user.role == UserRole.Admin ? "[管理员]" : "[用户]";
-            string statusStr = user.isActive ? "正常" : "禁用";
-            string info = $"{roleStr} {user.username} | {user.realName} | {statusStr} | 注册:{user.createTime}";
+            string roleStr = user.role == UserRole.Admin ? "[管理员]" : "[用户]";
+            string emailStr = string.IsNullOrEmpty(user.email) ? "-" : user.email;
+            string info = $"{roleStr} {user.userId} | {user.realName} | {emailStr} | 注册:{FormatDateYMD(user.createTime)}";
 
             var textObj = new GameObject("InfoText");
             textObj.transform.SetParent(item.transform, false);
@@ -313,16 +451,12 @@ namespace ChemLab.UI
 
             // 操作按钮区
             string uid      = user.userId;
-            string uname    = user.username;
             bool   isAdmin  = user.role == UserRole.Admin;
 
             if (!isAdmin)
             {
-                AddSmallButton(item.transform, user.isActive ? "禁用" : "启用",
-                    new Color(0.9f, 0.6f, 0.1f), () => OnToggleUser(uid));
-
                 AddSmallButton(item.transform, "重置密码",
-                    new Color(0.2f, 0.6f, 0.9f), () => OnShowResetPassword(uid, uname));
+                    new Color(0.2f, 0.6f, 0.9f), () => OnShowResetPassword(uid));
 
                 AddSmallButton(item.transform, "删除",
                     new Color(0.9f, 0.2f, 0.2f), () => OnDeleteUser(uid));
@@ -373,8 +507,22 @@ namespace ChemLab.UI
 
         private void OnSearchUser()
         {
-            string kw = searchUserInput != null ? searchUserInput.text.Trim() : "";
-            RefreshUserList(kw);
+            RefreshUserList();
+        }
+
+        private void OnResetUserFilters()
+        {
+            if (searchUserIdInput != null) searchUserIdInput.text = "";
+            if (searchRealNameInput != null) searchRealNameInput.text = "";
+            if (searchRoleDropdown != null)
+            {
+                searchRoleDropdown.value = 0;
+                searchRoleDropdown.RefreshShownValue();
+            }
+            if (searchCreateStartInput != null) searchCreateStartInput.text = "";
+            if (searchCreateEndInput != null) searchCreateEndInput.text = "";
+
+            RefreshUserList();
         }
 
         private void OnDeleteUser(string userId)
@@ -391,7 +539,7 @@ namespace ChemLab.UI
                     if (ok)
                     {
                         UIManager.Instance.ShowToast($"用户 [{user.username}] 已删除");
-                        RefreshUserList("");
+                        RefreshUserList();
                     }
                     else
                     {
@@ -409,7 +557,7 @@ namespace ChemLab.UI
                 var user = DataManager.Instance.FindUserById(userId);
                 string status = user != null && user.isActive ? "已启用" : "已禁用";
                 UIManager.Instance.ShowToast($"账号状态已更新：{status}");
-                RefreshUserList("");
+                RefreshUserList();
             }
             else
             {
@@ -450,7 +598,7 @@ namespace ChemLab.UI
 
             if (addUserSubPanel != null) addUserSubPanel.SetActive(false);
             UIManager.Instance.ShowToast($"用户 [{username}] 添加成功！");
-            RefreshUserList("");
+            RefreshUserList();
         }
 
         private void OnCancelAddUser()
@@ -460,19 +608,40 @@ namespace ChemLab.UI
 
         // ── 重置密码 ──────────────────────────────────────────
 
-        private void OnShowResetPassword(string userId, string username)
+        private void OnShowResetPassword(string userId)
         {
             _pendingResetUserId = userId;
-            if (resetTargetUserText != null) resetTargetUserText.text = $"重置用户：{username}";
-            if (newPasswordInput    != null) newPasswordInput.text    = "";
-            if (resetErrorText      != null) resetErrorText.text      = "";
-            if (resetPasswordSubPanel != null) resetPasswordSubPanel.SetActive(true);
+            var user = DataManager.Instance.FindUserById(userId);
+
+            if (resetPasswordSubPanel != null)
+                resetPasswordSubPanel.SetActive(true);
+
+            if (resetUserIdText != null) resetUserIdText.text = userId ?? "";
+            if (resetRealNameInput != null) resetRealNameInput.text = user?.realName ?? "";
+
+            // 邮箱、角色：显示数据库当前值
+            if (resetEmailInput != null) resetEmailInput.text = user?.email ?? "";
+            if (resetRoleDropdown != null)
+            {
+                resetRoleDropdown.value = (user != null && user.role == UserRole.Admin) ? 0 : 1;
+                resetRoleDropdown.RefreshShownValue();
+            }
+
+            if (newPasswordInput        != null) newPasswordInput.text        = "";
+            if (resetErrorText          != null) resetErrorText.text          = "";
         }
 
         private void OnConfirmReset()
         {
-            string newPwd = newPasswordInput != null ? newPasswordInput.text : "";
-            bool ok = DataManager.Instance.ResetPassword(_pendingResetUserId, newPwd, out string err);
+            string realName = resetRealNameInput != null ? resetRealNameInput.text.Trim() : "";
+            string email    = resetEmailInput != null ? resetEmailInput.text.Trim() : "";
+            // 新密码留空（含仅空格）表示不修改密码，由 DataManager.AdminUpdateUser 处理
+            string newPwd = newPasswordInput != null ? newPasswordInput.text.Trim() : "";
+            UserRole role = UserRole.User;
+            if (resetRoleDropdown != null && resetRoleDropdown.value == 0) role = UserRole.Admin;
+
+            bool ok = DataManager.Instance.AdminUpdateUser(
+                _pendingResetUserId, realName, email, role, newPwd, out string err);
 
             if (!ok)
             {
@@ -481,7 +650,8 @@ namespace ChemLab.UI
             }
 
             if (resetPasswordSubPanel != null) resetPasswordSubPanel.SetActive(false);
-            UIManager.Instance.ShowToast("密码重置成功！");
+            UIManager.Instance.ShowToast("用户信息已更新！");
+            RefreshUserList();
         }
 
         private void OnCancelReset()
@@ -498,6 +668,7 @@ namespace ChemLab.UI
         private void RefreshRecordList(string keyword)
         {
             _allRecords = DataManager.Instance.GetAllRecords();
+            RefreshExperimentNameDropdownOptions();
 
             if (recordListContent != null)
             {
@@ -505,15 +676,46 @@ namespace ChemLab.UI
                     Destroy(child.gameObject);
             }
 
+            string userIdKw = searchRecordUserIdInput != null ? searchRecordUserIdInput.text.Trim() : "";
+            string selectedExperiment = GetSelectedExperimentName();
+
+            bool hasStart = TryParseDateTimeFlexible(recordStartInput != null ? recordStartInput.text.Trim() : "", out var startDt);
+            bool hasEnd = TryParseDateTimeFlexible(recordEndInput != null ? recordEndInput.text.Trim() : "", out var endDt);
+            string startStr = recordStartInput != null ? recordStartInput.text.Trim() : "";
+            string endStr = recordEndInput != null ? recordEndInput.text.Trim() : "";
+            if (hasStart && !startStr.Contains(":")) startDt = startDt.Date;
+            if (hasEnd && !endStr.Contains(":")) endDt = endDt.Date.AddDays(1).AddTicks(-1);
+
             int count = 0;
             foreach (var record in _allRecords)
             {
                 if (!string.IsNullOrEmpty(keyword))
                 {
-                    bool match = record.username.Contains(keyword) ||
-                                 record.experimentName.Contains(keyword) ||
-                                 record.experimentType.Contains(keyword);
+                    bool match = (record.userId ?? "").Contains(keyword) ||
+                                 (record.experimentName ?? "").Contains(keyword) ||
+                                 (record.recordId ?? "").Contains(keyword);
                     if (!match) continue;
+                }
+
+                if (!string.IsNullOrEmpty(userIdKw))
+                {
+                    string uid = record.userId ?? "";
+                    bool userMatch = uid.Equals(userIdKw, System.StringComparison.OrdinalIgnoreCase) || uid.Contains(userIdKw);
+                    if (!userMatch) continue;
+                }
+
+                if (!string.IsNullOrEmpty(selectedExperiment) &&
+                    !string.Equals(record.experimentName ?? "", selectedExperiment, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (hasStart || hasEnd)
+                {
+                    if (!TryParseDateTimeFlexible(record.recordTime, out var rt))
+                        continue;
+                    if (hasStart && rt < startDt) continue;
+                    if (hasEnd && rt > endDt) continue;
                 }
 
                 CreateRecordItem(record);
@@ -534,15 +736,13 @@ namespace ChemLab.UI
             {
                 item = Instantiate(recordItemPrefab, recordListContent);
                 var texts = item.GetComponentsInChildren<Text>();
-                if (texts.Length >= 6)
-                {
-                    texts[0].text = record.username;
-                    texts[1].text = record.experimentName;
-                    texts[2].text = record.experimentType;
-                    texts[3].text = record.isCompleted ? $"{record.score:F1}分" : "未完成";
-                    texts[4].text = record.startTime;
-                    texts[5].text = record.result;
-                }
+                // 仅显示：recordId，username，实验名称，实验记录时间，分数
+                if (texts.Length >= 1) texts[0].text = record.recordId;
+                if (texts.Length >= 2) texts[1].text = record.username ?? "";
+                if (texts.Length >= 3) texts[2].text = record.experimentName ?? "";
+                if (texts.Length >= 4) texts[3].text = record.recordTime ?? "";
+                if (texts.Length >= 5) texts[4].text = $"{record.score:F1}";
+                if (texts.Length >= 6) texts[5].text = "";
                 var buttons = item.GetComponentsInChildren<Button>();
                 string rid = record.recordId;
                 foreach (var btn in buttons)
@@ -565,13 +765,10 @@ namespace ChemLab.UI
                 layout.childForceExpandHeight = true;
 
                 var bg = item.AddComponent<Image>();
-                bg.color = record.isCompleted
-                    ? new Color(0.93f, 0.97f, 0.93f)
-                    : new Color(0.97f, 0.93f, 0.93f);
+                bg.color = new Color(0.95f, 0.95f, 0.95f);
 
-                string statusStr = record.isCompleted ? $"✓ {record.score:F1}分" : "进行中";
-                string info = $"[{record.username}] {record.experimentName}（{record.experimentType}）\n" +
-                              $"状态：{statusStr} | 开始：{record.startTime} | {record.result}";
+                string info = $"UID：{record.userId}\n" +
+                              $"实验：{record.experimentName} | 分数：{record.score:F1} | 时间：{record.recordTime}";
 
                 var textObj = new GameObject("InfoText");
                 textObj.transform.SetParent(item.transform, false);
@@ -591,6 +788,20 @@ namespace ChemLab.UI
         {
             string kw = searchRecordInput != null ? searchRecordInput.text.Trim() : "";
             RefreshRecordList(kw);
+        }
+
+        private void OnResetRecordFilters()
+        {
+            if (searchRecordUserIdInput != null) searchRecordUserIdInput.text = "";
+            if (searchRecordInput != null) searchRecordInput.text = "";
+            if (recordStartInput != null) recordStartInput.text = "";
+            if (recordEndInput != null) recordEndInput.text = "";
+            if (experimentNameDropdown != null)
+            {
+                experimentNameDropdown.value = 0;
+                experimentNameDropdown.RefreshShownValue();
+            }
+            RefreshRecordList("");
         }
 
         private void OnDeleteRecord(string recordId)
@@ -614,6 +825,74 @@ namespace ChemLab.UI
             );
         }
 
+        private string GetSelectedExperimentName()
+        {
+            if (experimentNameDropdown == null || experimentNameDropdown.options == null || experimentNameDropdown.options.Count == 0)
+                return "";
+            int idx = experimentNameDropdown.value;
+            if (idx <= 0) return "";
+            if (idx >= experimentNameDropdown.options.Count) return "";
+            return experimentNameDropdown.options[idx].text ?? "";
+        }
+
+        private void RefreshExperimentNameDropdownOptions(List<ExperimentRecord> records)
+        {
+            // 兼容旧实现：保留签名但改为统一入口
+            RefreshExperimentNameDropdownOptions();
+        }
+
+        private void RefreshExperimentNameDropdownOptions()
+        {
+            if (experimentNameDropdown == null) return;
+
+            // 实验名称：直接从 experiments 表读取
+            var set = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var experiments = DataManager.Instance.GetAllExperiments();
+                if (experiments != null)
+                {
+                    for (int i = 0; i < experiments.Count; i++)
+                    {
+                        var e = experiments[i];
+                        if (e == null) continue;
+                        string n = (e.experimentName ?? "").Trim();
+                        if (!string.IsNullOrEmpty(n)) set.Add(n);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            var names = set.ToList();
+            names.Sort(System.StringComparer.OrdinalIgnoreCase);
+
+            string current = GetSelectedExperimentName();
+
+            experimentNameDropdown.ClearOptions();
+            var options = new List<string>(names.Count + 1) { "全部" };
+            options.AddRange(names);
+            experimentNameDropdown.AddOptions(options);
+
+            // 尽量保持选择不跳
+            int newIndex = 0;
+            if (!string.IsNullOrEmpty(current))
+            {
+                for (int i = 1; i < options.Count; i++)
+                {
+                    if (string.Equals(options[i], current, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        newIndex = i;
+                        break;
+                    }
+                }
+            }
+            experimentNameDropdown.value = newIndex;
+            experimentNameDropdown.RefreshShownValue();
+        }
+
         #endregion
 
         // ─────────────────────────────────────────────────────
@@ -629,7 +908,6 @@ namespace ChemLab.UI
                 {
                     StartCoroutine(DataManager.Instance.LogoutAsync((ok, err) =>
                     {
-                        DataManager.Instance.Logout();
                         UIManager.Instance.ShowLoginPanel();
                         UIManager.Instance.ShowToast(ok ? "已安全退出登录" : ("退出失败：" + err));
                     }));

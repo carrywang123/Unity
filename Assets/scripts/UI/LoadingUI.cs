@@ -22,6 +22,13 @@ namespace ChemLab.UI
         [Tooltip("进度条（可选）")]
         public Slider progressBar;
 
+        [Header("=== 进度条平滑设置 ===")]
+        [Tooltip("进度条快速冲到 90% 的速度（每秒变化量）")]
+        public float fastSpeedTo90 = 6f;
+
+        [Tooltip("最后 10%（0.9 -> 1.0）慢速收尾的时长（秒）")]
+        public float slowTailSeconds = 0.8f;
+
         [Header("=== 旋转设置 ===")]
         [Tooltip("旋转速度（度/秒）")]
         public float rotateSpeed = 180f;
@@ -35,6 +42,13 @@ namespace ChemLab.UI
         private Coroutine _dotCoroutine;
         private string    _baseText = "加载中";
 
+        private Coroutine _progressCoroutine;
+        private float _targetProgress = 0f;
+        private float _displayProgress = 0f;
+        private bool _tailMode = false;
+        private float _tailStartTime = -1f;
+        private float _tailStartValue = 0f;
+
         // ─────────────────────────────────────────────────────
         #region Unity 生命周期
         // ─────────────────────────────────────────────────────
@@ -47,6 +61,10 @@ namespace ChemLab.UI
                 _baseText    = loadingText.text;
                 _dotCoroutine = StartCoroutine(DotAnimation());
             }
+
+            // 进度条协程（如果有进度条组件）
+            if (progressBar != null && _progressCoroutine == null)
+                _progressCoroutine = StartCoroutine(ProgressAnimation());
         }
 
         private void OnDisable()
@@ -56,6 +74,12 @@ namespace ChemLab.UI
             {
                 StopCoroutine(_dotCoroutine);
                 _dotCoroutine = null;
+            }
+
+            if (_progressCoroutine != null)
+            {
+                StopCoroutine(_progressCoroutine);
+                _progressCoroutine = null;
             }
         }
 
@@ -84,7 +108,15 @@ namespace ChemLab.UI
             if (progressBar != null)
             {
                 progressBar.gameObject.SetActive(true);
-                progressBar.value = Mathf.Clamp01(value);
+                float v = Mathf.Clamp01(value);
+                _targetProgress = v;
+
+                // 如果目标要到 1，进入“最后 10% 慢速收尾”模式
+                if (Mathf.Approximately(v, 1f))
+                {
+                    _tailMode = true;
+                    _tailStartTime = -1f; // 延迟到真正进入 0.9->1.0 时再记录
+                }
             }
         }
 
@@ -95,6 +127,55 @@ namespace ChemLab.UI
         }
 
         #endregion
+
+        private IEnumerator ProgressAnimation()
+        {
+            // 使用 unscaledTime，避免 Time.timeScale=0 时卡住 UI 动画
+            while (true)
+            {
+                if (progressBar == null || !progressBar.gameObject.activeInHierarchy)
+                {
+                    yield return null;
+                    continue;
+                }
+
+                float dt = Time.unscaledDeltaTime;
+
+                float fastSpd = Mathf.Max(0.01f, fastSpeedTo90);
+                float tailDur = Mathf.Max(0.05f, slowTailSeconds);
+
+                // 第一段：快速冲到 min(target, 0.9)
+                float stage1Target = Mathf.Min(_targetProgress, 0.9f);
+                _displayProgress = Mathf.MoveTowards(_displayProgress, stage1Target, fastSpd * dt);
+
+                // 第二段：只有 target=1 时，最后 10% 慢速到顶
+                if (_tailMode && Mathf.Approximately(_targetProgress, 1f))
+                {
+                    // 等第一段到 0.9 后才开始慢速收尾
+                    if (_displayProgress >= 0.9f - 0.0001f)
+                    {
+                        if (_tailStartTime < 0f)
+                        {
+                            _tailStartTime = Time.unscaledTime;
+                            _tailStartValue = _displayProgress;
+                        }
+
+                        float t = (Time.unscaledTime - _tailStartTime) / tailDur;
+                        _displayProgress = Mathf.Lerp(_tailStartValue, 1f, Mathf.Clamp01(t));
+
+                        if (_displayProgress >= 0.9999f)
+                        {
+                            _displayProgress = 1f;
+                            _tailMode = false;
+                            _tailStartTime = -1f;
+                        }
+                    }
+                }
+
+                progressBar.value = Mathf.Clamp01(_displayProgress);
+                yield return null;
+            }
+        }
 
         // ─────────────────────────────────────────────────────
         #region 省略号动画

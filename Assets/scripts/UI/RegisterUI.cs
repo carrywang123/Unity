@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.UI;
 using ChemLab.Managers;
+using System.Collections;
 
 namespace ChemLab.UI
 {
@@ -34,21 +35,12 @@ namespace ChemLab.UI
         [Header("=== 按钮 ===")]
         public Button registerBtn;
         public Button backToLoginBtn;
-        public Button togglePasswordBtn;
-        public Button toggleConfirmPasswordBtn;
 
         [Header("=== 其他文本 ===")]
         public Text titleText;
         public Text globalErrorText;
 
-        [Header("=== 密码强度 ===")]
-        public Slider passwordStrengthSlider;
-        public Text   passwordStrengthText;
-
         // ── 私有变量 ──────────────────────────────────────────
-        private bool _isPasswordVisible        = false;
-        private bool _isConfirmPasswordVisible = false;
-
         // 颜色常量
         private static readonly Color COLOR_OK    = new Color(0.1f, 0.7f, 0.3f);
         private static readonly Color COLOR_ERROR = new Color(0.9f, 0.2f, 0.2f);
@@ -64,8 +56,6 @@ namespace ChemLab.UI
             // 绑定按钮
             if (registerBtn              != null) registerBtn.onClick.AddListener(OnRegisterClick);
             if (backToLoginBtn           != null) backToLoginBtn.onClick.AddListener(OnBackToLogin);
-            if (togglePasswordBtn        != null) togglePasswordBtn.onClick.AddListener(OnTogglePassword);
-            if (toggleConfirmPasswordBtn != null) toggleConfirmPasswordBtn.onClick.AddListener(OnToggleConfirmPassword);
 
             // 密码框默认隐藏
             SetPasswordContentType(passwordInput,        false);
@@ -101,10 +91,6 @@ namespace ChemLab.UI
             if (emailInput           != null) emailInput.text           = "";
 
             ClearAllHints();
-
-            // 重置密码强度
-            if (passwordStrengthSlider != null) passwordStrengthSlider.value = 0;
-            if (passwordStrengthText   != null) passwordStrengthText.text    = "";
         }
 
         #endregion
@@ -115,6 +101,13 @@ namespace ChemLab.UI
 
         private void OnRegisterClick()
         {
+            // 必填控件未绑定时直接拦截，避免空引用
+            if (usernameInput == null || passwordInput == null || confirmPasswordInput == null)
+            {
+                ShowGlobalError("注册界面输入框未正确绑定（username/password/confirmPassword）。请在 Inspector 里拖拽绑定后再试。");
+                return;
+            }
+
             // 全量验证
             bool ok = true;
             ok &= ValidateUsername();
@@ -145,9 +138,9 @@ namespace ChemLab.UI
                 ClearGlobalError();
                 UIManager.Instance.ShowMessage(
                     "注册成功",
-                    $"账号 [{username}] 注册成功！\n请使用新账号登录。",
-                    () => UIManager.Instance.ShowLoginPanel()
+                    $"账号 [{username}] 注册成功！\n2 秒后自动跳转到登录页。"
                 );
+                StartCoroutine(AutoBackToLogin(2f));
             }));
         }
 
@@ -156,19 +149,13 @@ namespace ChemLab.UI
             UIManager.Instance.ShowLoginPanel();
         }
 
-        private void OnTogglePassword()
-        {
-            _isPasswordVisible = !_isPasswordVisible;
-            SetPasswordContentType(passwordInput, _isPasswordVisible);
-        }
-
-        private void OnToggleConfirmPassword()
-        {
-            _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
-            SetPasswordContentType(confirmPasswordInput, _isConfirmPasswordVisible);
-        }
-
         #endregion
+
+        private IEnumerator AutoBackToLogin(float seconds)
+        {
+            yield return new WaitForSeconds(Mathf.Max(0f, seconds));
+            UIManager.Instance.ShowLoginPanel();
+        }
 
         // ─────────────────────────────────────────────────────
         #region 表单验证
@@ -201,20 +188,12 @@ namespace ChemLab.UI
             string val = passwordInput.text;
 
             if (string.IsNullOrEmpty(val))
-            { SetHint(passwordHint, "密码不能为空", COLOR_ERROR); UpdateStrength(0); return false; }
+            { SetHint(passwordHint, "密码不能为空", COLOR_ERROR); return false; }
 
             if (val.Length < 6)
-            { SetHint(passwordHint, "密码至少6位", COLOR_ERROR); UpdateStrength(1); return false; }
+            { SetHint(passwordHint, "密码至少6位", COLOR_ERROR); return false; }
 
-            int strength = CalcPasswordStrength(val);
-            UpdateStrength(strength);
-
-            if (strength == 1)
-                SetHint(passwordHint, "密码强度：弱（建议包含字母+数字）", COLOR_WARN);
-            else if (strength == 2)
-                SetHint(passwordHint, "密码强度：中", COLOR_WARN);
-            else
-                SetHint(passwordHint, "✓ 密码强度：强", COLOR_OK);
+            SetHint(passwordHint, "✓", COLOR_OK);
 
             return true;
         }
@@ -319,38 +298,6 @@ namespace ChemLab.UI
                 ? InputField.ContentType.Standard
                 : InputField.ContentType.Password;
             input.ForceLabelUpdate();
-        }
-
-        /// <summary>计算密码强度 1=弱 2=中 3=强</summary>
-        private int CalcPasswordStrength(string pwd)
-        {
-            int score = 0;
-            if (pwd.Length >= 8)  score++;
-            if (Regex.IsMatch(pwd, @"[A-Z]")) score++;
-            if (Regex.IsMatch(pwd, @"[a-z]")) score++;
-            if (Regex.IsMatch(pwd, @"[0-9]")) score++;
-            if (Regex.IsMatch(pwd, @"[^a-zA-Z0-9]")) score++;
-
-            if (score <= 2) return 1;
-            if (score <= 3) return 2;
-            return 3;
-        }
-
-        private void UpdateStrength(int level)
-        {
-            if (passwordStrengthSlider != null)
-                passwordStrengthSlider.value = level / 3f;
-
-            if (passwordStrengthText != null)
-            {
-                switch (level)
-                {
-                    case 0: passwordStrengthText.text = ""; break;
-                    case 1: passwordStrengthText.text = "弱"; passwordStrengthText.color = COLOR_ERROR; break;
-                    case 2: passwordStrengthText.text = "中"; passwordStrengthText.color = COLOR_WARN;  break;
-                    case 3: passwordStrengthText.text = "强"; passwordStrengthText.color = COLOR_OK;    break;
-                }
-            }
         }
 
         #endregion

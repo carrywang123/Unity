@@ -57,32 +57,22 @@ namespace ChemLab.Models
     [Serializable]
     public class ExperimentRecord
     {
-        public string recordId;         // 记录唯一ID
-        public string userId;           // 所属用户ID
-        public string username;         // 用户名（冗余，方便显示）
-        public string experimentName;   // 实验名称
-        public string experimentType;   // 实验类型
-        public string startTime;        // 开始时间
-        public string endTime;          // 结束时间
-        public float  score;            // 实验得分
-        public string result;           // 实验结果描述
-        public bool   isCompleted;      // 是否完成
+        public string recordId;        // 记录ID
+        public string userId;          // 用户ID
+        public string username;        // 用户名（展示用；通过 userId 联表获取，不存 records 表）
+        public string experimentName;  // 实验名称
+        public string recordTime;      // 记录时间
+        public float score;            // 分数
 
         public ExperimentRecord() { }
 
-        public ExperimentRecord(string userId, string username,
-                                string experimentName, string experimentType)
+        public ExperimentRecord(string userId, string experimentName)
         {
-            this.recordId        = Guid.NewGuid().ToString("N");
-            this.userId          = userId;
-            this.username        = username;
-            this.experimentName  = experimentName;
-            this.experimentType  = experimentType;
-            this.startTime       = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            this.endTime         = "";
-            this.score           = 0f;
-            this.result          = "";
-            this.isCompleted     = false;
+            this.recordId = Guid.NewGuid().ToString("N");
+            this.userId = userId;
+            this.experimentName = experimentName;
+            this.recordTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            this.score = 0f;
         }
     }
 

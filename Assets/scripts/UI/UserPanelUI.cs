@@ -7,9 +7,14 @@
 // 作  者：化工虚拟仿真实验平台
 // ============================================================
 
+using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
+using TMPro;
 using ChemLab.Managers;
 using ChemLab.Models;
 
@@ -17,23 +22,34 @@ namespace ChemLab.UI
 {
     public class UserPanelUI : MonoBehaviour
     {
+        private static readonly Color TAB_LABEL_SELECTED = new Color(0x7F / 255f, 0xD6 / 255f, 0xFD / 255f, 1f);
+        private static readonly Color TAB_LABEL_NORMAL = Color.white;
+
         // ── 顶部信息 ──────────────────────────────────────────
         [Header("=== 顶部信息 ===")]
         public Text welcomeText;
         public Text userInfoText;
         public Button logoutBtn;
 
-        // ── Tab 切换 ──────────────────────────────────────────
-        [Header("=== Tab 按钮 ===")]
-        public Button tabHomeBtn;
-        public Button tabRecordBtn;
-        public Button tabProfileBtn;
+        // ── 主面板切换（Home/Profile） ─────────────────────────
+        [Header("=== 主面板按钮（Home/Profile） ===")]
+        public Button homeBtn;
+        public Button profileBtn;
 
-        // ── 各 Tab 面板 ───────────────────────────────────────
-        [Header("=== Tab 面板 ===")]
+        [Header("=== 主面板（Home/Profile） ===")]
         public GameObject homePanel;
-        public GameObject recordPanel;
         public GameObject profilePanel;
+
+        // ── Profile 子面板（Info/Record/ResetPassword） ───────
+        [Header("=== Profile 子面板 Toggle ===")]
+        public Toggle profileInfoToggle;
+        public Toggle profileRecordToggle;
+        public Toggle profileResetPasswordToggle;
+
+        [Header("=== Profile 子面板 ===")]
+        public GameObject profileInfoPanel;
+        public GameObject profileRecordPanel;
+        public GameObject profileResetPasswordPanel;
 
         // ── 首页面板 ──────────────────────────────────────────
         [Header("=== 首页 ===")]
@@ -43,30 +59,34 @@ namespace ChemLab.UI
         public Text myAvgScoreText;
         public Text lastLoginText;
 
-        // 实验入口按钮（示例）
+        // ── 实验入口（动态生成） ─────────────────────────────
         [Header("=== 实验入口 ===")]
-        public Button startExperiment1Btn;  // 蒸馏实验
-        public Button startExperiment2Btn;  // 萃取实验
-        public Button startExperiment3Btn;  // 滴定实验
-        public Button startExperiment4Btn;  // 结晶实验
+        public Transform experimentEntryContent;
+        public GameObject experimentEntryPrefab;
+        [Tooltip("默认实验图片（按顺序轮流显示；建议填 4 张）")]
+        public Sprite[] defaultExperimentSprites;
 
-        // ── 实验记录面板 ──────────────────────────────────────
-        [Header("=== 我的实验记录 ===")]
+        // ── Profile/Info 面板内容 ─────────────────────────────
+        [Header("=== Profile/Info ===")]
+        public InputField profileIdText;
+        public InputField profileUsernameText;
+        public InputField profileRealNameText;
+        public InputField profileEmailText;
+        public Text profileCompletedRecordCountText;
+        public Text profileTotalAvgScoreText;
+        public Text profileExperimentTypeCountText;
+
+        // ── Profile/Record 面板内容 ───────────────────────────
+        [Header("=== Profile/Record ===")]
         public Transform recordListContent;
         public GameObject recordItemPrefab;
-        public Text recordSummaryText;
-
-        // ── 个人信息面板 ──────────────────────────────────────
-        [Header("=== 个人信息 ===")]
-        public Text profileUsernameText;
-        public Text profileRealNameText;
-        public Text profileEmailText;
-        public Text profileRoleText;
-        public Text profileCreateTimeText;
-        public Text profileLastLoginText;
+        public TMP_InputField recordFilterStartTimeInput;
+        public TMP_InputField recordFilterEndTimeInput;
+        public Dropdown recordFilterExperimentDropdown;
+        public Button recordFilterResetBtn;
 
         // 修改密码
-        [Header("=== 修改密码 ===")]
+        [Header("=== Profile/ResetPassword ===")]
         public InputField oldPasswordInput;
         public InputField newPasswordInput;
         public InputField confirmNewPasswordInput;
@@ -75,9 +95,9 @@ namespace ChemLab.UI
 
         // ── 私有变量 ──────────────────────────────────────────
         private List<ExperimentRecord> _myRecords = new List<ExperimentRecord>();
+        private Coroutine _profileStatsAnimCoroutine;
+        private int _defaultExperimentSpriteCursor;
 
-        private static readonly Color TAB_ACTIVE  = new Color(0.2f, 0.6f, 0.4f);
-        private static readonly Color TAB_INACTIVE = new Color(0.4f, 0.4f, 0.4f);
         private static readonly Color COLOR_OK    = new Color(0.1f, 0.7f, 0.3f);
         private static readonly Color COLOR_ERROR = new Color(0.9f, 0.2f, 0.2f);
 
@@ -89,23 +109,52 @@ namespace ChemLab.UI
         {
             if (logoutBtn != null) logoutBtn.onClick.AddListener(OnLogout);
 
-            if (tabHomeBtn    != null) tabHomeBtn.onClick.AddListener(()    => SwitchTab(0));
-            if (tabRecordBtn  != null) tabRecordBtn.onClick.AddListener(()  => SwitchTab(1));
-            if (tabProfileBtn != null) tabProfileBtn.onClick.AddListener(() => SwitchTab(2));
+            // 主面板按钮：Home/Profile
+            if (homeBtn != null) homeBtn.onClick.AddListener(() => SwitchMainPanel(0));
+            if (profileBtn != null) profileBtn.onClick.AddListener(() => SwitchMainPanel(1));
 
-            // 实验入口
-            if (startExperiment1Btn != null)
-                startExperiment1Btn.onClick.AddListener(() => OnStartExperiment("乙醇蒸馏实验", "蒸馏"));
-            if (startExperiment2Btn != null)
-                startExperiment2Btn.onClick.AddListener(() => OnStartExperiment("苯甲酸萃取实验", "萃取"));
-            if (startExperiment3Btn != null)
-                startExperiment3Btn.onClick.AddListener(() => OnStartExperiment("酸碱中和滴定", "滴定"));
-            if (startExperiment4Btn != null)
-                startExperiment4Btn.onClick.AddListener(() => OnStartExperiment("硫酸铜结晶实验", "结晶"));
+            // Profile 子面板 Toggle + label 变色
+            if (profileInfoToggle != null)
+                profileInfoToggle.onValueChanged.AddListener(isOn =>
+                {
+                    UpdateToggleLabelColor(profileInfoToggle, isOn);
+                    if (isOn) SwitchProfileTab(0);
+                });
+            if (profileRecordToggle != null)
+                profileRecordToggle.onValueChanged.AddListener(isOn =>
+                {
+                    UpdateToggleLabelColor(profileRecordToggle, isOn);
+                    if (isOn) SwitchProfileTab(1);
+                });
+            if (profileResetPasswordToggle != null)
+                profileResetPasswordToggle.onValueChanged.AddListener(isOn =>
+                {
+                    UpdateToggleLabelColor(profileResetPasswordToggle, isOn);
+                    if (isOn) SwitchProfileTab(2);
+                });
 
             // 修改密码
             if (changePasswordBtn != null)
                 changePasswordBtn.onClick.AddListener(OnChangePassword);
+
+            // Record 筛选控件：变化时刷新列表
+            if (recordFilterStartTimeInput != null)
+                recordFilterStartTimeInput.onEndEdit.AddListener(_ => RefreshRecords());
+            if (recordFilterEndTimeInput != null)
+                recordFilterEndTimeInput.onEndEdit.AddListener(_ => RefreshRecords());
+            if (recordFilterExperimentDropdown != null)
+                recordFilterExperimentDropdown.onValueChanged.AddListener(_ => RefreshRecords());
+            if (recordFilterResetBtn != null)
+                recordFilterResetBtn.onClick.AddListener(OnResetRecordFilters);
+
+            // 初始化 Profile 子 Toggle label 颜色
+            UpdateAllProfileToggleLabelColors();
+
+            // Profile/Info：只读展示（InputField 不可交互）
+            SetReadonly(profileIdText);
+            SetReadonly(profileUsernameText);
+            SetReadonly(profileRealNameText);
+            SetReadonly(profileEmailText);
         }
 
         #endregion
@@ -122,38 +171,70 @@ namespace ChemLab.UI
             if (welcomeText  != null) welcomeText.text  = $"欢迎，{user.realName}";
             if (userInfoText != null) userInfoText.text = $"账号：{user.username}";
 
-            SwitchTab(0);
+            // 默认主面板：Home
+            SwitchMainPanel(0);
         }
 
         #endregion
 
         // ─────────────────────────────────────────────────────
-        #region Tab 切换
+        #region 主面板/子面板切换
         // ─────────────────────────────────────────────────────
 
-        private void SwitchTab(int index)
+        /// <summary>0=Home，1=Profile</summary>
+        private void SwitchMainPanel(int index)
         {
             if (homePanel    != null) homePanel.SetActive(index == 0);
-            if (recordPanel  != null) recordPanel.SetActive(index == 1);
-            if (profilePanel != null) profilePanel.SetActive(index == 2);
+            if (profilePanel != null) profilePanel.SetActive(index == 1);
 
-            SetTabColor(tabHomeBtn,    index == 0);
-            SetTabColor(tabRecordBtn,  index == 1);
-            SetTabColor(tabProfileBtn, index == 2);
+            if (index == 0)
+            {
+                RefreshHome();
+                return;
+            }
+
+            // 进入 Profile 时默认 Info
+            if (profileInfoToggle != null) profileInfoToggle.isOn = true;
+            SwitchProfileTab(0);
+        }
+
+        /// <summary>0=Info，1=Record，2=ResetPassword</summary>
+        private void SwitchProfileTab(int index)
+        {
+            if (profileInfoPanel != null) profileInfoPanel.SetActive(index == 0);
+            if (profileRecordPanel != null) profileRecordPanel.SetActive(index == 1);
+            if (profileResetPasswordPanel != null) profileResetPasswordPanel.SetActive(index == 2);
+
+            if (profileInfoToggle != null && profileInfoToggle.isOn != (index == 0)) profileInfoToggle.isOn = (index == 0);
+            if (profileRecordToggle != null && profileRecordToggle.isOn != (index == 1)) profileRecordToggle.isOn = (index == 1);
+            if (profileResetPasswordToggle != null && profileResetPasswordToggle.isOn != (index == 2)) profileResetPasswordToggle.isOn = (index == 2);
+            UpdateAllProfileToggleLabelColors();
 
             switch (index)
             {
-                case 0: RefreshHome();    break;
+                case 0: RefreshProfile(); break;
                 case 1: RefreshRecords(); break;
-                case 2: RefreshProfile(); break;
+                case 2: RefreshProfile(); break; // ResetPassword 也需要刷新/清空输入框
             }
         }
 
-        private void SetTabColor(Button btn, bool active)
+        private void UpdateAllProfileToggleLabelColors()
         {
-            if (btn == null) return;
-            var img = btn.GetComponent<Image>();
-            if (img != null) img.color = active ? TAB_ACTIVE : TAB_INACTIVE;
+            if (profileInfoToggle != null) UpdateToggleLabelColor(profileInfoToggle, profileInfoToggle.isOn);
+            if (profileRecordToggle != null) UpdateToggleLabelColor(profileRecordToggle, profileRecordToggle.isOn);
+            if (profileResetPasswordToggle != null) UpdateToggleLabelColor(profileResetPasswordToggle, profileResetPasswordToggle.isOn);
+        }
+
+        private static void UpdateToggleLabelColor(Toggle toggle, bool isOn)
+        {
+            if (toggle == null) return;
+            var c = isOn ? TAB_LABEL_SELECTED : TAB_LABEL_NORMAL;
+
+            var text = toggle.GetComponentInChildren<Text>(true);
+            if (text != null) text.color = c;
+
+            var tmp = toggle.GetComponentInChildren<TMP_Text>(true);
+            if (tmp != null) tmp.color = c;
         }
 
         #endregion
@@ -169,20 +250,210 @@ namespace ChemLab.UI
 
             _myRecords = DataManager.Instance.GetRecordsByUser(user.userId);
 
-            int completedCount = _myRecords.FindAll(r => r.isCompleted).Count;
+            int scoredCount = _myRecords.FindAll(r => r != null && r.score > 0f).Count;
             float avgScore = 0f;
-            if (completedCount > 0)
+            if (scoredCount > 0)
             {
                 float total = 0f;
-                _myRecords.ForEach(r => { if (r.isCompleted) total += r.score; });
-                avgScore = total / completedCount;
+                _myRecords.ForEach(r => { if (r != null && r.score > 0f) total += r.score; });
+                avgScore = total / scoredCount;
             }
 
             if (homeWelcomeText     != null) homeWelcomeText.text     = $"你好，{user.realName}！欢迎使用化工虚拟仿真实验平台";
             if (myRecordCountText   != null) myRecordCountText.text   = $"实验次数\n{_myRecords.Count}";
-            if (myCompletedCountText!= null) myCompletedCountText.text= $"已完成\n{completedCount}";
+            if (myCompletedCountText!= null) myCompletedCountText.text= $"已评分\n{scoredCount}";
             if (myAvgScoreText      != null) myAvgScoreText.text      = $"平均分\n{avgScore:F1}";
             if (lastLoginText       != null) lastLoginText.text       = $"上次登录：{user.lastLoginTime}";
+
+            RefreshExperimentEntries();
+        }
+
+        #endregion
+
+        // ─────────────────────────────────────────────────────
+        #region 实验入口（动态生成）
+        // ─────────────────────────────────────────────────────
+
+        private void RefreshExperimentEntries()
+        {
+            if (experimentEntryContent == null) return;
+
+            // 清空旧条目
+            foreach (Transform child in experimentEntryContent)
+                Destroy(child.gameObject);
+
+            _defaultExperimentSpriteCursor = 0;
+
+            List<ExperimentModel> experiments = null;
+            try
+            {
+                experiments = DataManager.Instance.GetAllExperiments();
+            }
+            catch
+            {
+                experiments = null;
+            }
+
+            if (experiments == null || experiments.Count == 0)
+            {
+                CreateEmptyHint(experimentEntryContent, "暂无实验，请联系管理员添加实验。");
+                return;
+            }
+
+            for (int i = 0; i < experiments.Count; i++)
+            {
+                var e = experiments[i];
+                if (e == null) continue;
+                CreateExperimentEntryItem(e);
+            }
+        }
+
+        private void CreateExperimentEntryItem(ExperimentModel exp)
+        {
+            if (experimentEntryContent == null) return;
+
+            GameObject item;
+            if (experimentEntryPrefab != null)
+            {
+                item = Instantiate(experimentEntryPrefab, experimentEntryContent);
+                var ui = item.GetComponent<ExperimentEntryItemUI>();
+                if (ui != null)
+                {
+                    ui.SetTexts(exp.experimentName, exp.experimentDescription);
+                    ui.SetSprite(ResolveExperimentSprite(exp.experimentImage));
+                    if (ui.button != null)
+                    {
+                        ui.button.onClick.RemoveAllListeners();
+                        ui.button.onClick.AddListener(() => OnStartExperiment(exp));
+                    }
+                }
+                else
+                {
+                    // 兜底：如果预制体没挂脚本，则尝试用子 Text/Image 填充
+                    var texts = item.GetComponentsInChildren<Text>(true);
+                    if (texts.Length > 0) texts[0].text = exp.experimentName ?? "";
+                    if (texts.Length > 1) texts[1].text = exp.experimentDescription ?? "";
+                    var img = item.GetComponentInChildren<Image>(true);
+                    if (img != null)
+                    {
+                        var sp = ResolveExperimentSprite(exp.experimentImage);
+                        img.sprite = sp;
+                        img.enabled = sp != null;
+                    }
+                    var btn = item.GetComponent<Button>();
+                    if (btn != null)
+                    {
+                        btn.onClick.RemoveAllListeners();
+                        btn.onClick.AddListener(() => OnStartExperiment(exp));
+                    }
+                }
+                return;
+            }
+
+            // 兜底：未配置 prefab 时，运行时动态创建一个简单条目按钮
+            item = new GameObject($"ExperimentEntry_{exp.experimentId}");
+            item.transform.SetParent(experimentEntryContent, false);
+
+            var rect = item.AddComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(0, 90);
+
+            var imgBg = item.AddComponent<Image>();
+            imgBg.color = new Color(0.95f, 0.97f, 1f, 1f);
+
+            var btn2 = item.AddComponent<Button>();
+            btn2.onClick.AddListener(() => OnStartExperiment(exp));
+
+            var layout = item.AddComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(16, 16, 10, 10);
+            layout.spacing = 6;
+            layout.childAlignment = TextAnchor.MiddleLeft;
+            layout.childControlWidth = true;
+            layout.childForceExpandWidth = true;
+            layout.childControlHeight = false;
+            layout.childForceExpandHeight = false;
+
+            AddTextToItem(item.transform, exp.experimentName ?? "", 16, Color.black, FontStyle.Bold);
+            AddTextToItem(item.transform, exp.experimentDescription ?? "", 12, new Color(0.25f, 0.25f, 0.25f), FontStyle.Normal);
+        }
+
+        private static Sprite LoadExperimentSprite(string pathOrKey)
+        {
+            if (string.IsNullOrWhiteSpace(pathOrKey)) return null;
+            // 约定：存 Resources 路径（不带扩展名），例如 "Experiments/absorbance"
+            return Resources.Load<Sprite>(pathOrKey.Trim());
+        }
+
+        private Sprite ResolveExperimentSprite(string pathOrKey)
+        {
+            var sp = LoadExperimentSprite(pathOrKey);
+            if (sp != null) return sp;
+            return GetNextDefaultExperimentSprite();
+        }
+
+        private Sprite GetNextDefaultExperimentSprite()
+        {
+            if (defaultExperimentSprites == null || defaultExperimentSprites.Length == 0)
+                return null;
+
+            // 轮流显示（循环）
+            int start = _defaultExperimentSpriteCursor;
+            for (int i = 0; i < defaultExperimentSprites.Length; i++)
+            {
+                int idx = (start + i) % defaultExperimentSprites.Length;
+                var sp = defaultExperimentSprites[idx];
+                if (sp != null)
+                {
+                    _defaultExperimentSpriteCursor = (idx + 1) % defaultExperimentSprites.Length;
+                    return sp;
+                }
+            }
+
+            return null;
+        }
+
+        private void OnStartExperiment(ExperimentModel exp)
+        {
+            if (exp == null) return;
+            string name = exp.experimentName ?? "";
+
+            // 吸光度检验：进入 Assets/Lab/2/实验场景.unity（场景名：实验场景）
+            if (string.Equals(name, "吸光度检验", StringComparison.Ordinal))
+            {
+                StartAndLoadSceneForExperiment(name, "实验场景");
+                return;
+            }
+
+            OnStartExperiment(name, "");
+        }
+
+        private void StartAndLoadSceneForExperiment(string experimentName, string sceneName)
+        {
+            var user = DataManager.Instance.CurrentUser;
+            if (user == null) return;
+
+            UIManager.Instance.ShowConfirm(
+                "开始实验",
+                $"确定要开始【{experimentName}】吗？",
+                () =>
+                {
+                    // 创建实验记录
+                    var record = new ExperimentRecord(user.userId, experimentName);
+                    DataManager.Instance.AddRecord(record);
+
+                    UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，正在进入场景…");
+
+                    if (!Application.CanStreamedLevelBeLoaded(sceneName))
+                    {
+                        UIManager.Instance.ShowMessage(
+                            "无法进入场景",
+                            $"未能加载场景：{sceneName}\n请确认该场景已加入 Build Settings 的 Scenes In Build。"
+                        );
+                        return;
+                    }
+
+                    SceneManager.LoadScene(sceneName);
+                }
+            );
         }
 
         #endregion
@@ -198,23 +469,178 @@ namespace ChemLab.UI
 
             _myRecords = DataManager.Instance.GetRecordsByUser(user.userId);
 
+            // 更新下拉选项（包含“全部”）
+            UpdateRecordExperimentDropdownOptions(_myRecords);
+
+            var filtered = FilterRecords(_myRecords);
+
             if (recordListContent != null)
             {
                 foreach (Transform child in recordListContent)
                     Destroy(child.gameObject);
             }
 
-            if (recordSummaryText != null)
-                recordSummaryText.text = $"共 {_myRecords.Count} 条实验记录";
-
-            if (_myRecords.Count == 0)
+            if (filtered.Count == 0)
             {
                 CreateEmptyHint(recordListContent, "暂无实验记录，快去开始第一个实验吧！");
                 return;
             }
 
-            foreach (var record in _myRecords)
+            foreach (var record in filtered)
                 CreateRecordItem(record);
+        }
+
+        private void OnResetRecordFilters()
+        {
+            if (recordFilterStartTimeInput != null) recordFilterStartTimeInput.text = "";
+            if (recordFilterEndTimeInput != null) recordFilterEndTimeInput.text = "";
+            if (recordFilterExperimentDropdown != null)
+            {
+                // 约定：0=全部
+                recordFilterExperimentDropdown.SetValueWithoutNotify(0);
+                recordFilterExperimentDropdown.RefreshShownValue();
+            }
+
+            RefreshRecords();
+        }
+
+        private void UpdateRecordExperimentDropdownOptions(List<ExperimentRecord> records)
+        {
+            if (recordFilterExperimentDropdown == null) return;
+
+            string previous = null;
+            if (recordFilterExperimentDropdown.options != null &&
+                recordFilterExperimentDropdown.value >= 0 &&
+                recordFilterExperimentDropdown.value < recordFilterExperimentDropdown.options.Count)
+            {
+                previous = recordFilterExperimentDropdown.options[recordFilterExperimentDropdown.value].text;
+            }
+
+            // 实验名称：直接从 experiments 表读取（而不是从 records 去重）
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var experiments = DataManager.Instance.GetAllExperiments();
+                if (experiments != null)
+                {
+                    foreach (var e in experiments)
+                    {
+                        if (e == null) continue;
+                        string name = (e.experimentName ?? "").Trim();
+                        if (!string.IsNullOrEmpty(name))
+                            set.Add(name);
+                    }
+                }
+            }
+            catch
+            {
+                // 兜底：若实验表暂不可用，则回退到 records 去重，保证下拉不为空
+                if (records != null)
+                {
+                    foreach (var r in records)
+                    {
+                        if (r == null) continue;
+                        string name = (r.experimentName ?? "").Trim();
+                        if (!string.IsNullOrEmpty(name))
+                            set.Add(name);
+                    }
+                }
+            }
+
+            var options = new List<Dropdown.OptionData>();
+            options.Add(new Dropdown.OptionData("全部"));
+            var names = new List<string>(set);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (var name in names)
+                options.Add(new Dropdown.OptionData(name));
+
+            recordFilterExperimentDropdown.options = options;
+
+            int idx = 0;
+            if (!string.IsNullOrEmpty(previous))
+            {
+                for (int i = 0; i < options.Count; i++)
+                {
+                    if (options[i].text == previous) { idx = i; break; }
+                }
+            }
+
+            recordFilterExperimentDropdown.SetValueWithoutNotify(idx);
+            recordFilterExperimentDropdown.RefreshShownValue();
+        }
+
+        private List<ExperimentRecord> FilterRecords(List<ExperimentRecord> records)
+        {
+            var result = new List<ExperimentRecord>();
+            if (records == null) return result;
+
+            DateTime? start = TryParseFilterTime(recordFilterStartTimeInput != null ? recordFilterStartTimeInput.text : null);
+            DateTime? end = TryParseFilterTime(recordFilterEndTimeInput != null ? recordFilterEndTimeInput.text : null);
+
+            string selectedExperiment = null;
+            if (recordFilterExperimentDropdown != null &&
+                recordFilterExperimentDropdown.options != null &&
+                recordFilterExperimentDropdown.value >= 0 &&
+                recordFilterExperimentDropdown.value < recordFilterExperimentDropdown.options.Count)
+            {
+                selectedExperiment = recordFilterExperimentDropdown.options[recordFilterExperimentDropdown.value].text;
+            }
+            bool filterByExperiment = !string.IsNullOrEmpty(selectedExperiment) && selectedExperiment != "全部";
+
+            foreach (var r in records)
+            {
+                if (r == null) continue;
+
+                if (filterByExperiment && r.experimentName != selectedExperiment)
+                    continue;
+
+                if ((start.HasValue || end.HasValue) && !string.IsNullOrEmpty(r.recordTime))
+                {
+                    if (TryParseRecordTime(r.recordTime, out var rt))
+                    {
+                        if (start.HasValue && rt < start.Value) continue;
+                        if (end.HasValue && rt > end.Value) continue;
+                    }
+                    // 解析失败：不做时间过滤（保留该条）
+                }
+
+                result.Add(r);
+            }
+
+            return result;
+        }
+
+        private static DateTime? TryParseFilterTime(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return null;
+
+            if (DateTime.TryParse(input, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out var dt))
+                return dt;
+
+            var formats = new[]
+            {
+                "yyyy-MM-dd",
+                "yyyy/MM/dd",
+                "yyyy-MM-dd HH:mm",
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy/MM/dd HH:mm",
+                "yyyy/MM/dd HH:mm:ss",
+            };
+
+            if (DateTime.TryParseExact(input.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out dt))
+                return dt;
+
+            return null;
+        }
+
+        private static bool TryParseRecordTime(string input, out DateTime dt)
+        {
+            // 记录时间在项目里通常是 "yyyy-MM-dd HH:mm:ss"
+            var formats = new[] { "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd" };
+            if (DateTime.TryParseExact(input, formats, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out dt))
+                return true;
+
+            return DateTime.TryParse(input, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out dt);
         }
 
         private void CreateRecordItem(ExperimentRecord record)
@@ -229,10 +655,10 @@ namespace ChemLab.UI
                 var texts = item.GetComponentsInChildren<Text>();
                 if (texts.Length >= 4)
                 {
-                    texts[0].text = record.experimentName;
-                    texts[1].text = record.experimentType;
-                    texts[2].text = record.isCompleted ? $"{record.score:F1}分" : "进行中";
-                    texts[3].text = record.startTime;
+                    texts[0].text = record.recordId;
+                    texts[1].text = record.experimentName;
+                    texts[2].text = record.recordTime;
+                    texts[3].text = record.score > 0f ? $"{record.score:F1}" : "未评分";
                 }
             }
             else
@@ -251,25 +677,17 @@ namespace ChemLab.UI
                 layout.childForceExpandHeight = false;
 
                 var bg = item.AddComponent<Image>();
-                bg.color = record.isCompleted
+                bg.color = record.score > 0f
                     ? new Color(0.93f, 0.97f, 0.93f, 1f)
                     : new Color(0.97f, 0.97f, 0.93f, 1f);
 
                 // 第一行：实验名称 + 得分
-                string scoreStr = record.isCompleted ? $"得分：{record.score:F1}" : "【进行中】";
-                AddTextToItem(item.transform, $"📋 {record.experimentName}（{record.experimentType}）  {scoreStr}",
+                string scoreStr = record.score > 0f ? $"得分：{record.score:F1}" : "【未评分】";
+                AddTextToItem(item.transform, $"📋 {record.experimentName}  {scoreStr}",
                     15, Color.black, FontStyle.Bold);
 
                 // 第二行：时间
-                string timeStr = record.isCompleted
-                    ? $"开始：{record.startTime}  结束：{record.endTime}"
-                    : $"开始：{record.startTime}";
-                AddTextToItem(item.transform, timeStr, 12, Color.gray, FontStyle.Normal);
-
-                // 第三行：结果
-                if (!string.IsNullOrEmpty(record.result))
-                    AddTextToItem(item.transform, $"结果：{record.result}", 12,
-                        new Color(0.2f, 0.5f, 0.2f), FontStyle.Normal);
+                AddTextToItem(item.transform, $"记录时间：{record.recordTime}", 12, Color.gray, FontStyle.Normal);
             }
         }
 
@@ -312,18 +730,88 @@ namespace ChemLab.UI
             var user = DataManager.Instance.CurrentUser;
             if (user == null) return;
 
+            _myRecords = DataManager.Instance.GetRecordsByUser(user.userId);
+
+            int completedCount = _myRecords != null ? _myRecords.Count : 0;
+            int scoredCount = 0;
+            float avgScore = 0f;
+            var experimentTypes = new HashSet<string>();
+
+            if (_myRecords != null)
+            {
+                foreach (var r in _myRecords)
+                {
+                    if (r == null) continue;
+
+                    if (!string.IsNullOrEmpty(r.experimentName))
+                        experimentTypes.Add(r.experimentName);
+
+                    if (r.score > 0f)
+                    {
+                        scoredCount++;
+                        avgScore += r.score;
+                    }
+                }
+            }
+
+            if (scoredCount > 0) avgScore /= scoredCount;
+
+            if (profileIdText        != null) profileIdText.text        = $"ID：{user.userId}";
             if (profileUsernameText  != null) profileUsernameText.text  = $"用户名：{user.username}";
             if (profileRealNameText  != null) profileRealNameText.text  = $"真实姓名：{user.realName}";
             if (profileEmailText     != null) profileEmailText.text     = $"邮箱：{(string.IsNullOrEmpty(user.email) ? "未填写" : user.email)}";
-            if (profileRoleText      != null) profileRoleText.text      = $"角色：{(user.role == UserRole.Admin ? "管理员" : "普通用户")}";
-            if (profileCreateTimeText!= null) profileCreateTimeText.text= $"注册时间：{user.createTime}";
-            if (profileLastLoginText != null) profileLastLoginText.text = $"上次登录：{user.lastLoginTime}";
+            PlayProfileStatsAnimation(completedCount, avgScore, experimentTypes.Count, 1f);
 
             // 清空密码修改框
             if (oldPasswordInput        != null) oldPasswordInput.text        = "";
             if (newPasswordInput        != null) newPasswordInput.text        = "";
             if (confirmNewPasswordInput != null) confirmNewPasswordInput.text = "";
             if (changePasswordMsg       != null) changePasswordMsg.text       = "";
+        }
+
+        private void PlayProfileStatsAnimation(int completedCount, float avgScore, int experimentTypeCount, float durationSeconds)
+        {
+            if (_profileStatsAnimCoroutine != null)
+            {
+                StopCoroutine(_profileStatsAnimCoroutine);
+                _profileStatsAnimCoroutine = null;
+            }
+
+            // 先置 0，保证“从 0 增长”的视觉效果
+            if (profileCompletedRecordCountText != null) profileCompletedRecordCountText.text = "0";
+            if (profileTotalAvgScoreText        != null) profileTotalAvgScoreText.text        = "0.0";
+            if (profileExperimentTypeCountText  != null) profileExperimentTypeCountText.text  = "0";
+
+            _profileStatsAnimCoroutine = StartCoroutine(AnimateProfileStats(completedCount, avgScore, experimentTypeCount, durationSeconds));
+        }
+
+        private IEnumerator AnimateProfileStats(int targetCompletedCount, float targetAvgScore, int targetExperimentTypeCount, float durationSeconds)
+        {
+            durationSeconds = Mathf.Max(0.0001f, durationSeconds);
+
+            float t = 0f;
+            while (t < durationSeconds)
+            {
+                t += Time.deltaTime;
+                float p = Mathf.Clamp01(t / durationSeconds);
+
+                int completedNow = Mathf.RoundToInt(Mathf.Lerp(0f, targetCompletedCount, p));
+                float avgNow = Mathf.Lerp(0f, targetAvgScore, p);
+                int typeNow = Mathf.RoundToInt(Mathf.Lerp(0f, targetExperimentTypeCount, p));
+
+                if (profileCompletedRecordCountText != null) profileCompletedRecordCountText.text = $"{completedNow}";
+                if (profileTotalAvgScoreText        != null) profileTotalAvgScoreText.text        = $"{avgNow:F1}";
+                if (profileExperimentTypeCountText  != null) profileExperimentTypeCountText.text  = $"{typeNow}";
+
+                yield return null;
+            }
+
+            // 收尾：确保最终值准确
+            if (profileCompletedRecordCountText != null) profileCompletedRecordCountText.text = $"{targetCompletedCount}";
+            if (profileTotalAvgScoreText        != null) profileTotalAvgScoreText.text        = $"{targetAvgScore:F1}";
+            if (profileExperimentTypeCountText  != null) profileExperimentTypeCountText.text  = $"{targetExperimentTypeCount}";
+
+            _profileStatsAnimCoroutine = null;
         }
 
         private void OnChangePassword()
@@ -383,6 +871,14 @@ namespace ChemLab.UI
             changePasswordMsg.color = color;
         }
 
+        private static void SetReadonly(InputField input)
+        {
+            if (input == null) return;
+            input.interactable = false;
+            // 仍然允许显示/选择文本（不同 Unity 版本表现不同，至少禁用编辑）
+            input.readOnly = true;
+        }
+
         #endregion
 
         // ─────────────────────────────────────────────────────
@@ -400,10 +896,7 @@ namespace ChemLab.UI
                 () =>
                 {
                     // 创建实验记录
-                    var record = new ExperimentRecord(
-                        user.userId, user.username,
-                        experimentName, experimentType
-                    );
+                    var record = new ExperimentRecord(user.userId, experimentName);
                     DataManager.Instance.AddRecord(record);
 
                     UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，祝实验顺利！");
@@ -427,7 +920,7 @@ namespace ChemLab.UI
         {
             yield return new UnityEngine.WaitForSeconds(2f);
 
-            float score  = Random.Range(60f, 100f);
+            float score  = UnityEngine.Random.Range(60f, 100f);
             string result = score >= 90 ? "实验操作规范，结果优秀！"
                           : score >= 75 ? "实验基本完成，有少量误差。"
                           : "实验完成，建议复习相关知识点。";
@@ -455,7 +948,6 @@ namespace ChemLab.UI
                 {
                     StartCoroutine(DataManager.Instance.LogoutAsync((ok, err) =>
                     {
-                        DataManager.Instance.Logout();
                         UIManager.Instance.ShowLoginPanel();
                         UIManager.Instance.ShowToast(ok ? "已安全退出登录" : ("退出失败：" + err));
                     }));

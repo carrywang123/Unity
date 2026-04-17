@@ -30,7 +30,7 @@ namespace ChemLab.UI
         [Tooltip("跳转注册按钮")]
         public Button goRegisterBtn;
 
-        [Tooltip("显示/隐藏密码切换按钮")]
+        [Tooltip("显示/隐藏密码切换 Button")]
         public Button togglePasswordBtn;
 
         [Header("=== 文本 ===")]
@@ -43,8 +43,18 @@ namespace ChemLab.UI
         [Tooltip("版本号文本")]
         public Text versionText;
 
-        [Tooltip("密码显示切换图标文本（可用文字代替图标）")]
+        [Tooltip("密码显示切换图标文本（可用文字代替图标；若使用图片图标也可保留为空）")]
         public Text togglePasswordIcon;
+
+        [Header("=== 密码图标（眼睛睁开/闭上）===")]
+        [Tooltip("显示眼睛图标的 Image（一般放在 Toggle 子节点上）")]
+        public Image togglePasswordIconImage;
+
+        [Tooltip("眼睛睁开（显示密码）Sprite")]
+        public Sprite eyeOpenSprite;
+
+        [Tooltip("眼睛闭上（隐藏密码）Sprite")]
+        public Sprite eyeClosedSprite;
 
         [Header("=== 记住密码 ===")]
         [Tooltip("记住密码Toggle")]
@@ -69,6 +79,9 @@ namespace ChemLab.UI
             // 密码框默认隐藏
             if (passwordInput != null)
                 passwordInput.contentType = InputField.ContentType.Password;
+
+            _isPasswordVisible = false;
+            UpdateToggleIcon();
         }
 
         private void Start()
@@ -198,6 +211,13 @@ namespace ChemLab.UI
 
         private void UpdateToggleIcon()
         {
+            // 优先使用 Image + Sprite 进行眼睛图标切换
+            if (togglePasswordIconImage != null)
+            {
+                var sp = _isPasswordVisible ? eyeOpenSprite : eyeClosedSprite;
+                if (sp != null) togglePasswordIconImage.sprite = sp;
+            }
+
             if (togglePasswordIcon != null)
                 togglePasswordIcon.text = _isPasswordVisible ? "隐藏" : "显示";
         }
