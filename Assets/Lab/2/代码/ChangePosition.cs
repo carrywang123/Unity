@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -78,9 +77,10 @@ public class ChangePosition : MonoBehaviour
         Application.Quit();
     }
 
+    /// <summary>返回主场景（不上传成绩；上传请在 marks 的 exit1/exit2 完成）。</summary>
     public void ReStart()
     {
-        SceneManager.LoadScene(0);
+        SceneManager.LoadScene("Main");
     }
 }
 }

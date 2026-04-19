@@ -59,7 +59,8 @@ namespace ChemLab.Models
     {
         public string recordId;        // 记录ID
         public string userId;          // 用户ID
-        public string username;        // 用户名（展示用；通过 userId 联表获取，不存 records 表）
+        public string username;        // 用户名（联表 users，不存 records 表）
+        public string realname;
         public string experimentName;  // 实验名称
         public string recordTime;      // 记录时间
         public float score;            // 分数

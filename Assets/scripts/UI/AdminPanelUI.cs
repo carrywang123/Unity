@@ -767,7 +767,8 @@ namespace ChemLab.UI
                 {
                     bool match = (record.userId ?? "").Contains(keyword) ||
                                  (record.experimentName ?? "").Contains(keyword) ||
-                                 (record.recordId ?? "").Contains(keyword);
+                                 (record.recordId ?? "").Contains(keyword) ||
+                                 (record.realname ?? "").Contains(keyword);
                     if (!match) continue;
                 }
 
@@ -810,9 +811,9 @@ namespace ChemLab.UI
             {
                 item = Instantiate(recordItemPrefab, recordListContent);
                 var texts = item.GetComponentsInChildren<Text>();
-                // 仅显示：recordId，username，实验名称，实验记录时间，分数
+                // 仅显示：recordId，真实姓名，实验名称，实验记录时间，分数
                 if (texts.Length >= 1) texts[0].text = record.recordId;
-                if (texts.Length >= 2) texts[1].text = record.username ?? "";
+                if (texts.Length >= 2) texts[1].text = record.realname ?? "";
                 if (texts.Length >= 3) texts[2].text = record.experimentName ?? "";
                 if (texts.Length >= 4) texts[3].text = record.recordTime ?? "";
                 if (texts.Length >= 5) texts[4].text = $"{record.score:F1}";

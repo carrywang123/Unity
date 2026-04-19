@@ -84,6 +84,8 @@ namespace ChemLab.UI
         public TMP_InputField recordFilterStartTimeInput;
         public TMP_InputField recordFilterEndTimeInput;
         public Dropdown recordFilterExperimentDropdown;
+        [Tooltip("按当前筛选条件刷新实验记录列表")]
+        public Button recordFilterSearchBtn;
         public Button recordFilterResetBtn;
 
         // 修改密码
@@ -145,6 +147,8 @@ namespace ChemLab.UI
                 recordFilterEndTimeInput.onEndEdit.AddListener(_ => RefreshRecords());
             if (recordFilterExperimentDropdown != null)
                 recordFilterExperimentDropdown.onValueChanged.AddListener(_ => RefreshRecords());
+            if (recordFilterSearchBtn != null)
+                recordFilterSearchBtn.onClick.AddListener(OnSearchRecordsClick);
             if (recordFilterResetBtn != null)
                 recordFilterResetBtn.onClick.AddListener(OnResetRecordFilters);
 
@@ -437,12 +441,6 @@ namespace ChemLab.UI
                 $"确定要开始【{experimentName}】吗？",
                 () =>
                 {
-                    // 创建实验记录
-                    var record = new ExperimentRecord(user.userId, experimentName);
-                    DataManager.Instance.AddRecord(record);
-
-                    UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，正在进入场景…");
-
                     if (!Application.CanStreamedLevelBeLoaded(sceneName))
                     {
                         UIManager.Instance.ShowMessage(
@@ -452,6 +450,8 @@ namespace ChemLab.UI
                         return;
                     }
 
+                    DataManager.Instance.SetPendingLabExperimentName(experimentName);
+                    UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，正在进入场景…");
                     SceneManager.LoadScene(sceneName);
                 }
             );
@@ -489,6 +489,11 @@ namespace ChemLab.UI
 
             foreach (var record in filtered)
                 CreateRecordItem(record);
+        }
+
+        private void OnSearchRecordsClick()
+        {
+            RefreshRecords();
         }
 
         private void OnResetRecordFilters()
@@ -759,10 +764,10 @@ namespace ChemLab.UI
 
             if (scoredCount > 0) avgScore /= scoredCount;
 
-            if (profileIdText        != null) profileIdText.text        = $"ID：{user.userId}";
-            if (profileUsernameText  != null) profileUsernameText.text  = $"用户名：{user.username}";
-            if (profileRealNameText  != null) profileRealNameText.text  = $"真实姓名：{user.realName}";
-            if (profileEmailText     != null) profileEmailText.text     = $"邮箱：{(string.IsNullOrEmpty(user.email) ? "未填写" : user.email)}";
+            if (profileIdText        != null) profileIdText.text        = $"{user.userId}";
+            if (profileUsernameText  != null) profileUsernameText.text  = $"{user.username}";
+            if (profileRealNameText  != null) profileRealNameText.text  = $"{user.realName}";
+            if (profileEmailText     != null) profileEmailText.text     = $"{(string.IsNullOrEmpty(user.email) ? "未填写" : user.email)}";
             PlayProfileStatsAnimation(completedCount, avgScore, experimentTypes.Count, 1f);
 
             // 清空密码修改框
@@ -917,80 +922,9 @@ namespace ChemLab.UI
                 $"确定要开始【{experimentName}】吗？",
                 () =>
                 {
-                    // 创建实验记录
-                    var record = new ExperimentRecord(user.userId, experimentName);
-#if UNITY_WEBGL && !UNITY_EDITOR
-                    UIManager.Instance.ShowLoading("正在创建记录...");
-                    StartCoroutine(DataManager.Instance.AddRecordAsync(record, (ok, err) =>
-                    {
-                        UIManager.Instance.HideLoading();
-                        if (!ok)
-                        {
-                            UIManager.Instance.ShowMessage("创建记录失败", err);
-                            return;
-                        }
-                        UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，祝实验顺利！");
-                        SimulateExperimentComplete(record.recordId, experimentName);
-                    }));
-                    return;
-#else
-                    DataManager.Instance.AddRecord(record);
-#endif
-
                     UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，祝实验顺利！");
-
-                    // TODO: 此处可加载对应实验场景
-                    // SceneManager.LoadScene(experimentName);
-
-                    // 模拟实验完成（演示用，实际应在实验场景中完成后回调）
-                    SimulateExperimentComplete(record.recordId, experimentName);
                 }
             );
-        }
-
-        /// <summary>模拟实验完成（演示用）</summary>
-        private void SimulateExperimentComplete(string recordId, string experimentName)
-        {
-            StartCoroutine(SimulateCoroutine(recordId, experimentName));
-        }
-
-        private System.Collections.IEnumerator SimulateCoroutine(string recordId, string experimentName)
-        {
-            yield return new UnityEngine.WaitForSeconds(2f);
-
-            float score  = UnityEngine.Random.Range(60f, 100f);
-            string result = score >= 90 ? "实验操作规范，结果优秀！"
-                          : score >= 75 ? "实验基本完成，有少量误差。"
-                          : "实验完成，建议复习相关知识点。";
-
-#if UNITY_WEBGL && !UNITY_EDITOR
-            UIManager.Instance.ShowLoading("正在提交成绩...");
-            bool ok2 = false;
-            string err2 = "";
-            yield return StartCoroutine(DataManager.Instance.CompleteRecordAsync(recordId, score, (ok, err) =>
-            {
-                ok2 = ok;
-                err2 = err;
-            }));
-            UIManager.Instance.HideLoading();
-            if (!ok2)
-            {
-                UIManager.Instance.ShowMessage("提交失败", err2);
-                yield break;
-            }
-            UIManager.Instance.ShowMessage(
-                "实验完成",
-                $"【{experimentName}】实验完成！\n得分：{score:F1} 分\n{result}",
-                () => RefreshRecords()
-            );
-#else
-            DataManager.Instance.CompleteRecord(recordId, score, result);
-            UIManager.Instance.ShowMessage(
-                "实验完成",
-                $"【{experimentName}】实验完成！\n得分：{score:F1} 分\n{result}",
-                () => RefreshRecords()
-            );
-#endif
         }
 
         #endregion

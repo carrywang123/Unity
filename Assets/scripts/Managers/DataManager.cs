@@ -81,6 +81,19 @@ namespace ChemLab.Managers
         // ── 当前登录用户（两种模式都使用）─────────────────────
         public UserModel CurrentUser { get; private set; }
 
+        /// <summary>从主界面进入实验场景前写入实验名称；在实验场景内通过 marks 退出上传记录后清空。</summary>
+        public string PendingLabExperimentName { get; private set; }
+
+        public void SetPendingLabExperimentName(string experimentName)
+        {
+            PendingLabExperimentName = string.IsNullOrWhiteSpace(experimentName) ? null : experimentName.Trim();
+        }
+
+        public void ClearPendingLabExperiment()
+        {
+            PendingLabExperimentName = null;
+        }
+
         // ─────────────────────────────────────────────────────
         #region Unity 生命周期
         // ─────────────────────────────────────────────────────
@@ -774,7 +787,7 @@ ON DUPLICATE KEY UPDATE
             return new List<ExperimentRecord>(_cacheAllRecords);
             #else
             var rows = _db.Query(@"
-SELECT r.record_id, r.user_id, u.username AS username, r.experiment_name, r.record_time, r.score
+SELECT r.record_id, r.user_id, u.username AS username, u.real_name AS realname, r.experiment_name, r.record_time, r.score
 FROM records r
 LEFT JOIN users u ON u.user_id = r.user_id;");
             var list = new List<ExperimentRecord>(rows.Count);
@@ -790,7 +803,7 @@ LEFT JOIN users u ON u.user_id = r.user_id;");
             return new List<ExperimentRecord>(_cacheMyRecords);
             #else
             var rows = _db.Query(@"
-SELECT r.record_id, r.user_id, u.username AS username, r.experiment_name, r.record_time, r.score
+SELECT r.record_id, r.user_id, u.username AS username, u.real_name AS realname, r.experiment_name, r.record_time, r.score
 FROM records r
 LEFT JOIN users u ON u.user_id = r.user_id
 WHERE r.user_id=@user_id;",
@@ -968,6 +981,7 @@ WHERE record_id=@record_id;",
             public string recordId;
             public string userId;
             public string username;
+            public string realname;
             public string experimentName;
             public string recordTime;
             public float score;
@@ -978,6 +992,7 @@ WHERE record_id=@record_id;",
                 r.recordId = recordId;
                 r.userId = userId;
                 r.username = username;
+                r.realname = realname;
                 r.experimentName = experimentName;
                 r.recordTime = recordTime;
                 r.score = score;
@@ -1335,6 +1350,7 @@ WHERE record_id=@record_id;",
             rec.recordId = ToStr(r, "record_id");
             rec.userId = ToStr(r, "user_id");
             rec.username = ToStr(r, "username");
+            rec.realname = ToStr(r, "realname");
             rec.experimentName = ToStr(r, "experiment_name");
             rec.recordTime = ToStr(r, "record_time");
             rec.score = ToFloat(r, "score", 0f);

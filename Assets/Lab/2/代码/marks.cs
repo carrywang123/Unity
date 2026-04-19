@@ -1,11 +1,19 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
+using ChemLab.Managers;
+using ChemLab.Models;
 using TMPro;
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
 namespace game_2
 {
 public class marks : MonoBehaviour
 {
+    public Button exit1;
+    public Button exit2;
     public TMP_InputField[] input1;
     public TMP_InputField[] input2;
     public TMP_InputField[] input3;
@@ -105,6 +113,48 @@ public class marks : MonoBehaviour
         {
             AllOperationDefaultsFlag[i] = false;
         }
+
+        if (exit1 != null) exit1.onClick.AddListener(OnExitLabClick);
+        if (exit2 != null) exit2.onClick.AddListener(OnExitLabClick);
+    }
+
+    private void OnExitLabClick()
+    {
+        StartCoroutine(ExitLabAndReturnMain());
+    }
+
+    private IEnumerator ExitLabAndReturnMain()
+    {
+        var dm = DataManager.Instance;
+        var user = dm != null ? dm.CurrentUser : null;
+        string expName = dm != null ? dm.PendingLabExperimentName : null;
+        if (string.IsNullOrEmpty(expName))
+            expName = "吸光度检验";
+
+        float score = GetFinalScoreForRecord();
+
+        if (user != null)
+        {
+            var record = new ExperimentRecord(user.userId, expName);
+            record.score = score;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            bool ok = false;
+            string err = "";
+            yield return StartCoroutine(dm.AddRecordAsync(record, (o, e) => { ok = o; err = e; }));
+            if (!ok)
+                Debug.LogWarning("[marks] 上传实验记录失败：" + err);
+#else
+            dm.AddRecord(record);
+            yield return null;
+#endif
+        }
+        else
+            yield return null;
+
+        if (dm != null)
+            dm.ClearPendingLabExperiment();
+
+        SceneManager.LoadScene("Main");
     }
 
     private void Update()
@@ -238,9 +288,9 @@ public class marks : MonoBehaviour
         ArrangeOperationDefaults();
         StringBuilder sb = new StringBuilder();
         int j = 1;
-        sb.Append("扣分原因：");
+        sb.Append("??????");
         if (OperationDefaults.Count == 0)
-            sb.Append("    无");
+            sb.Append("    ??");
         else
             foreach (string st in OperationDefaults)
             {
@@ -256,8 +306,8 @@ public class marks : MonoBehaviour
         if (OperationMarks < 0)
             OperationMarks = 0;
         TotalMarks += OperationMarks * OperationProportion;
-        TotalResult.text = TotalMarks.ToString() + "分";
-        OperationResult.text = OperationMarks.ToString() + "分";
+        TotalResult.text = TotalMarks.ToString() + "??";
+        OperationResult.text = OperationMarks.ToString() + "??";
     }
 
     private void ArrangeOperationDefaults()
@@ -276,9 +326,9 @@ public class marks : MonoBehaviour
     {
         StringBuilder sb = new StringBuilder();
         int j = 1;
-        sb.Append("扣分原因：");
+        sb.Append("??????");
         if (DataDefaults.Count == 0)
-            sb.Append("    无");
+            sb.Append("    ??");
         else
             foreach (string st in DataDefaults)
             {
@@ -294,8 +344,8 @@ public class marks : MonoBehaviour
         if (DataMarks < 0)
             DataMarks = 0;
         TotalMarks += DataMarks * DataProportion;
-        TotalResult.text = TotalMarks.ToString() + "分";
-        DataResult.text = DataMarks.ToString() + "分";
+        TotalResult.text = TotalMarks.ToString() + "??";
+        DataResult.text = DataMarks.ToString() + "??";
     }
     public void AddOperationDefalt(string defaults)
     {
@@ -317,6 +367,20 @@ public class marks : MonoBehaviour
     public void ChangeAllOperationDefaltsFlag(int val)
     {
         AllOperationDefaultsFlag[val] = true;
+    }
+
+    /// <summary>?????????????????????????????? TotalResult????</summary>
+    public float GetFinalScoreForRecord()
+    {
+        if (TotalResult != null && !string.IsNullOrEmpty(TotalResult.text))
+        {
+            string s = TotalResult.text.Replace("??", "").Trim();
+            if (float.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v))
+                return v;
+            if (float.TryParse(s, out v))
+                return v;
+        }
+        return TotalMarks;
     }
 
 }

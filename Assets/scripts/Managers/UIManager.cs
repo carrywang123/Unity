@@ -7,6 +7,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using ChemLab.Utils;
 
@@ -87,6 +88,82 @@ namespace ChemLab.Managers
             }
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        private void OnDestroy()
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+        }
+
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            if (scene.name != "Main") return;
+            RefreshPanelReferencesFromMainScene();
+            if (DataManager.Instance != null && DataManager.Instance.CurrentUser != null)
+                NavigateByRole();
+        }
+
+        /// <summary>Main 场景卸载再加载后，序列化引用会失效；按场景重新绑定 UI。</summary>
+        public void RefreshPanelReferencesFromMainScene()
+        {
+            const string sn = "Main";
+            var login = FindUIInScene<UI.LoginUI>(sn);
+            if (login != null) loginPanel = login.gameObject;
+            var reg = FindUIInScene<UI.RegisterUI>(sn);
+            if (reg != null) registerPanel = reg.gameObject;
+            var adm = FindUIInScene<UI.AdminPanelUI>(sn);
+            if (adm != null) adminPanel = adm.gameObject;
+            var usr = FindUIInScene<UI.UserPanelUI>(sn);
+            if (usr != null) userPanel = usr.gameObject;
+
+            var msg = FindUIInScene<UI.MessageBoxUI>(sn);
+            if (msg != null)
+            {
+                messageBox = msg.gameObject;
+                messageTitle = msg.titleText;
+                messageContent = msg.contentText;
+                messageConfirmBtn = msg.confirmButton;
+                messageCancelBtn = msg.cancelButton;
+            }
+
+            var load = FindUIInScene<UI.LoadingUI>(sn);
+            if (load != null)
+            {
+                loadingMask = load.gameObject;
+                loadingText = load.loadingText;
+            }
+
+            var toast = FindUIInScene<UI.ToastUI>(sn);
+            if (toast != null)
+            {
+                toastPanel = toast.gameObject;
+                toastText = toast.messageText;
+            }
+
+            if (messageConfirmBtn != null)
+            {
+                messageConfirmBtn.onClick.RemoveAllListeners();
+                messageConfirmBtn.onClick.AddListener(OnMessageConfirm);
+            }
+            if (messageCancelBtn != null)
+            {
+                messageCancelBtn.onClick.RemoveAllListeners();
+                messageCancelBtn.onClick.AddListener(OnMessageCancel);
+            }
+
+            InstallCursorHoverForAllButtons();
+        }
+
+        private static T FindUIInScene<T>(string sceneName) where T : MonoBehaviour
+        {
+            var arr = UnityEngine.Object.FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var c in arr)
+            {
+                if (c != null && c.gameObject.scene.name == sceneName)
+                    return c;
+            }
+            return null;
         }
 
         private void Start()
