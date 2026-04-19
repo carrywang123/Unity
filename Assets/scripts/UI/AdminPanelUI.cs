@@ -535,6 +535,22 @@ namespace ChemLab.UI
                 $"确定要删除用户 [{user.username}] 吗？\n该用户的所有实验记录也将被删除！",
                 () =>
                 {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    UIManager.Instance.ShowLoading("正在删除用户...");
+                    StartCoroutine(DataManager.Instance.DeleteUserAsync(userId, (ok, err) =>
+                    {
+                        UIManager.Instance.HideLoading();
+                        if (ok)
+                        {
+                            UIManager.Instance.ShowToast($"用户 [{user.username}] 已删除");
+                            RefreshUserList();
+                        }
+                        else
+                        {
+                            UIManager.Instance.ShowMessage("删除失败", err);
+                        }
+                    }));
+#else
                     bool ok = DataManager.Instance.DeleteUser(userId, out string err);
                     if (ok)
                     {
@@ -545,12 +561,33 @@ namespace ChemLab.UI
                     {
                         UIManager.Instance.ShowMessage("删除失败", err);
                     }
+#endif
                 }
             );
         }
 
         private void OnToggleUser(string userId)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            var user = DataManager.Instance.FindUserById(userId);
+            if (user == null) return;
+            bool newActive = !user.isActive;
+            UIManager.Instance.ShowLoading("正在更新状态...");
+            StartCoroutine(DataManager.Instance.ToggleUserActiveAsync(userId, newActive, (ok, err) =>
+            {
+                UIManager.Instance.HideLoading();
+                if (ok)
+                {
+                    string status = newActive ? "已启用" : "已禁用";
+                    UIManager.Instance.ShowToast($"账号状态已更新：{status}");
+                    RefreshUserList();
+                }
+                else
+                {
+                    UIManager.Instance.ShowMessage("操作失败", err);
+                }
+            }));
+#else
             bool ok = DataManager.Instance.ToggleUserActive(userId, out string err);
             if (ok)
             {
@@ -563,6 +600,7 @@ namespace ChemLab.UI
             {
                 UIManager.Instance.ShowMessage("操作失败", err);
             }
+#endif
         }
 
         // ── 添加用户 ──────────────────────────────────────────
@@ -587,6 +625,21 @@ namespace ChemLab.UI
             UserRole role   = (addRoleDropdown != null && addRoleDropdown.value == 0)
                               ? UserRole.User : UserRole.Admin;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            UIManager.Instance.ShowLoading("正在添加用户...");
+            StartCoroutine(DataManager.Instance.AdminAddUserAsync(username, password, realName, email, role, (ok, err) =>
+            {
+                UIManager.Instance.HideLoading();
+                if (!ok)
+                {
+                    if (addUserErrorText != null) addUserErrorText.text = err;
+                    return;
+                }
+                if (addUserSubPanel != null) addUserSubPanel.SetActive(false);
+                UIManager.Instance.ShowToast($"用户 [{username}] 添加成功！");
+                RefreshUserList();
+            }));
+#else
             bool ok = DataManager.Instance.AdminAddUser(
                 username, password, realName, email, role, out string err);
 
@@ -599,6 +652,7 @@ namespace ChemLab.UI
             if (addUserSubPanel != null) addUserSubPanel.SetActive(false);
             UIManager.Instance.ShowToast($"用户 [{username}] 添加成功！");
             RefreshUserList();
+#endif
         }
 
         private void OnCancelAddUser()
@@ -640,6 +694,22 @@ namespace ChemLab.UI
             UserRole role = UserRole.User;
             if (resetRoleDropdown != null && resetRoleDropdown.value == 0) role = UserRole.Admin;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            UIManager.Instance.ShowLoading("正在更新用户...");
+            StartCoroutine(DataManager.Instance.AdminUpdateUserAsync(
+                _pendingResetUserId, realName, email, role, newPwd, (ok, err) =>
+                {
+                    UIManager.Instance.HideLoading();
+                    if (!ok)
+                    {
+                        if (resetErrorText != null) resetErrorText.text = err;
+                        return;
+                    }
+                    if (resetPasswordSubPanel != null) resetPasswordSubPanel.SetActive(false);
+                    UIManager.Instance.ShowToast("用户信息已更新！");
+                    RefreshUserList();
+                }));
+#else
             bool ok = DataManager.Instance.AdminUpdateUser(
                 _pendingResetUserId, realName, email, role, newPwd, out string err);
 
@@ -652,6 +722,7 @@ namespace ChemLab.UI
             if (resetPasswordSubPanel != null) resetPasswordSubPanel.SetActive(false);
             UIManager.Instance.ShowToast("用户信息已更新！");
             RefreshUserList();
+#endif
         }
 
         private void OnCancelReset()
@@ -811,6 +882,22 @@ namespace ChemLab.UI
                 "确定要删除该实验记录吗？",
                 () =>
                 {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    UIManager.Instance.ShowLoading("正在删除记录...");
+                    StartCoroutine(DataManager.Instance.DeleteRecordAsync(recordId, (ok, err) =>
+                    {
+                        UIManager.Instance.HideLoading();
+                        if (ok)
+                        {
+                            UIManager.Instance.ShowToast("实验记录已删除");
+                            RefreshRecordList("");
+                        }
+                        else
+                        {
+                            UIManager.Instance.ShowMessage("删除失败", err);
+                        }
+                    }));
+#else
                     bool ok = DataManager.Instance.DeleteRecord(recordId, out string err);
                     if (ok)
                     {
@@ -821,6 +908,7 @@ namespace ChemLab.UI
                     {
                         UIManager.Instance.ShowMessage("删除失败", err);
                     }
+#endif
                 }
             );
         }

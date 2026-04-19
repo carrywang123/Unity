@@ -15,6 +15,9 @@ using UnityEngine;
 using ChemLab.Models;
 using ChemLab.Database;
 using ChemLab.Utils;
+#if UNITY_WEBGL
+using ChemLab.Networking;
+#endif
 
 namespace ChemLab.Managers
 {
@@ -49,6 +52,21 @@ namespace ChemLab.Managers
         private MySqlDb _db;
         private string _mysqlConfigPath;
 
+        // 注意：这个字段必须在 Editor 与 Player 中都存在，否则会触发序列化不一致报错。
+        // WebGL 运行时才会使用它；PC/Server 下不会用到。
+        [Header("=== WebGL API 设置 ===")]
+        [Tooltip("WebGL API 根地址（须含 /api），例如 http://118.25.40.159:7070/api")]
+        public string apiBaseUrl = "http://118.25.40.159:7070/api";
+
+#if UNITY_WEBGL
+        private ApiClient _api;
+
+        private List<UserModel> _cacheUsers = new List<UserModel>();
+        private List<ExperimentModel> _cacheExperiments = new List<ExperimentModel>();
+        private List<ExperimentRecord> _cacheAllRecords = new List<ExperimentRecord>();
+        private List<ExperimentRecord> _cacheMyRecords = new List<ExperimentRecord>();
+#endif
+
         [Serializable]
         private class MySqlConfig
         {
@@ -80,10 +98,14 @@ namespace ChemLab.Managers
             _mysqlConfigPath = Path.Combine(Application.persistentDataPath, "mysql_config.json");
             LoadOrCreateMySqlConfigJson();
 
+#if UNITY_WEBGL
+            _api = new ApiClient(apiBaseUrl);
+#else
             EnsureDatabaseExists();
             InitMySql();
             EnsureSchema();
             EnsureAdminUser();
+#endif
         }
 
         #endregion
@@ -310,28 +332,62 @@ VALUES (@user_id, @username, @password, @real_name, @email, @role, @create_time,
 
         public List<UserModel> GetAllUsers()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return new List<UserModel>(_cacheUsers);
+#else
             var rows = _db.Query("SELECT * FROM users;");
             var list = new List<UserModel>(rows.Count);
             foreach (var r in rows) list.Add(RowToUser(r));
             return list;
+#endif
         }
 
         public UserModel FindUserByUsername(string username)
         {
             if (string.IsNullOrWhiteSpace(username)) return null;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL：从缓存/当前用户中查找
+            if (CurrentUser != null && string.Equals(CurrentUser.username, username, StringComparison.OrdinalIgnoreCase))
+                return CurrentUser;
+
+            for (int i = 0; i < _cacheUsers.Count; i++)
+            {
+                var u = _cacheUsers[i];
+                if (u == null) continue;
+                if (string.Equals(u.username, username, StringComparison.OrdinalIgnoreCase))
+                    return u;
+            }
+            return null;
+#else
             var rows = _db.Query(
                 "SELECT * FROM users WHERE LOWER(username)=LOWER(@username) LIMIT 1;",
                 new Dictionary<string, object> { { "@username", username } });
             return rows.Count > 0 ? RowToUser(rows[0]) : null;
+#endif
         }
 
         public UserModel FindUserById(string userId)
         {
             if (string.IsNullOrWhiteSpace(userId)) return null;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL：从缓存/当前用户中查找
+            if (CurrentUser != null && string.Equals(CurrentUser.userId, userId, StringComparison.OrdinalIgnoreCase))
+                return CurrentUser;
+
+            for (int i = 0; i < _cacheUsers.Count; i++)
+            {
+                var u = _cacheUsers[i];
+                if (u == null) continue;
+                if (string.Equals(u.userId, userId, StringComparison.OrdinalIgnoreCase))
+                    return u;
+            }
+            return null;
+#else
             var rows = _db.Query(
                 "SELECT * FROM users WHERE user_id=@user_id LIMIT 1;",
                 new Dictionary<string, object> { { "@user_id", userId } });
             return rows.Count > 0 ? RowToUser(rows[0]) : null;
+#endif
         }
 
         public bool RegisterUser(string username, string rawPassword,
@@ -634,10 +690,14 @@ VALUES (@user_id, @username, @password, @real_name, @email, @role, @create_time,
 
         public List<ExperimentModel> GetAllExperiments()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            return new List<ExperimentModel>(_cacheExperiments);
+#else
             var rows = _db.Query("SELECT * FROM experiments;");
             var list = new List<ExperimentModel>(rows.Count);
             foreach (var r in rows) list.Add(RowToExperiment(r));
             return list;
+#endif
         }
 
         public ExperimentModel FindExperimentById(string experimentId)
@@ -710,6 +770,9 @@ ON DUPLICATE KEY UPDATE
 
         public List<ExperimentRecord> GetAllRecords()
         {
+            #if UNITY_WEBGL && !UNITY_EDITOR
+            return new List<ExperimentRecord>(_cacheAllRecords);
+            #else
             var rows = _db.Query(@"
 SELECT r.record_id, r.user_id, u.username AS username, r.experiment_name, r.record_time, r.score
 FROM records r
@@ -717,10 +780,15 @@ LEFT JOIN users u ON u.user_id = r.user_id;");
             var list = new List<ExperimentRecord>(rows.Count);
             foreach (var r in rows) list.Add(RowToRecord(r));
             return list;
+            #endif
         }
 
         public List<ExperimentRecord> GetRecordsByUser(string userId)
         {
+            #if UNITY_WEBGL && !UNITY_EDITOR
+            // WebGL：WarmupAfterLoginAsync 已拉取当前用户记录；这里只返回缓存
+            return new List<ExperimentRecord>(_cacheMyRecords);
+            #else
             var rows = _db.Query(@"
 SELECT r.record_id, r.user_id, u.username AS username, r.experiment_name, r.record_time, r.score
 FROM records r
@@ -730,6 +798,7 @@ WHERE r.user_id=@user_id;",
             var list = new List<ExperimentRecord>(rows.Count);
             foreach (var r in rows) list.Add(RowToRecord(r));
             return list;
+            #endif
         }
 
         public void AddRecord(ExperimentRecord record)
@@ -805,6 +874,26 @@ WHERE record_id=@record_id;",
 
         public IEnumerator LoginAsync(string username, string rawPassword, bool isAdmin, Action<bool, string> onDone)
         {
+#if UNITY_WEBGL
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/login",
+                JsonUtility.ToJson(new LoginRequest { username = username, password = rawPassword }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<LoginResponse>(text ?? "");
+                    if (resp == null || !resp.ok || resp.user == null)
+                    {
+                        ok = false;
+                        err = (resp != null && !string.IsNullOrEmpty(resp.error)) ? resp.error : "登录失败";
+                        return;
+                    }
+                    CurrentUser = resp.user.ToModel();
+                    ok = true;
+                });
+            onDone?.Invoke(ok, err);
+#else
             // 兼容旧UI传参 isAdmin；数据库中以 role 字段为准，这里不做强制。
             bool ok = false;
             string err = "";
@@ -819,10 +908,168 @@ WHERE record_id=@record_id;",
             }
             yield return null;
             onDone?.Invoke(ok, err);
+#endif
         }
+
+#if UNITY_WEBGL
+        [Serializable] private class LoginRequest { public string username; public string password; }
+        [Serializable] private class LoginResponse { public bool ok; public string error; public UserDto user; }
+
+        [Serializable]
+        private class UserDto
+        {
+            public string userId;
+            public string username;
+            public string password;
+            public string realName;
+            public string email;
+            public int role;
+            public string createTime;
+            public string lastLoginTime;
+            public bool isActive;
+
+            public UserModel ToModel()
+            {
+                var u = new UserModel();
+                u.userId = userId;
+                u.username = username;
+                u.password = password;
+                u.realName = realName;
+                u.email = email;
+                u.role = (UserRole)role;
+                u.createTime = createTime;
+                u.lastLoginTime = lastLoginTime;
+                u.isActive = isActive;
+                return u;
+            }
+        }
+
+        [Serializable] private class ExperimentsResponse { public bool ok; public string error; public ExperimentDto[] experiments; }
+        [Serializable] private class UsersResponse { public bool ok; public string error; public UserDto[] users; }
+        [Serializable] private class RecordsResponse { public bool ok; public string error; public RecordDto[] records; }
+
+        [Serializable]
+        private class ExperimentDto
+        {
+            public string experimentId;
+            public string experimentName;
+            public string experimentDescription;
+            public string experimentImage;
+
+            public ExperimentModel ToModel()
+            {
+                return new ExperimentModel(experimentId, experimentName, experimentDescription, experimentImage);
+            }
+        }
+
+        [Serializable]
+        private class RecordDto
+        {
+            public string recordId;
+            public string userId;
+            public string username;
+            public string experimentName;
+            public string recordTime;
+            public float score;
+
+            public ExperimentRecord ToModel()
+            {
+                var r = new ExperimentRecord();
+                r.recordId = recordId;
+                r.userId = userId;
+                r.username = username;
+                r.experimentName = experimentName;
+                r.recordTime = recordTime;
+                r.score = score;
+                return r;
+            }
+        }
+
+        public IEnumerator WarmupAfterLoginAsync(Action<bool, string> onDone)
+        {
+            if (CurrentUser == null) { onDone?.Invoke(false, "未登录"); yield break; }
+
+            bool ok = true;
+            string err = "";
+
+            // experiments
+            yield return _api.Get("/experiments", (succ, e2, text) =>
+            {
+                if (!succ) { ok = false; err = e2; return; }
+                var resp = JsonUtility.FromJson<ExperimentsResponse>(text ?? "");
+                if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "获取实验列表失败"; return; }
+                _cacheExperiments.Clear();
+                if (resp.experiments != null)
+                    for (int i = 0; i < resp.experiments.Length; i++)
+                        if (resp.experiments[i] != null) _cacheExperiments.Add(resp.experiments[i].ToModel());
+            });
+            if (!ok) { onDone?.Invoke(false, err); yield break; }
+
+            // records (my)
+            yield return _api.Get("/records/byUser?userId=" + Uri.EscapeDataString(CurrentUser.userId ?? ""), (succ, e2, text) =>
+            {
+                if (!succ) { ok = false; err = e2; return; }
+                var resp = JsonUtility.FromJson<RecordsResponse>(text ?? "");
+                if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "获取我的记录失败"; return; }
+                _cacheMyRecords.Clear();
+                if (resp.records != null)
+                    for (int i = 0; i < resp.records.Length; i++)
+                        if (resp.records[i] != null) _cacheMyRecords.Add(resp.records[i].ToModel());
+            });
+            if (!ok) { onDone?.Invoke(false, err); yield break; }
+
+            if (CurrentUser.role == UserRole.Admin)
+            {
+                yield return _api.Get("/users", (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<UsersResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "获取用户列表失败"; return; }
+                    _cacheUsers.Clear();
+                    if (resp.users != null)
+                        for (int i = 0; i < resp.users.Length; i++)
+                            if (resp.users[i] != null) _cacheUsers.Add(resp.users[i].ToModel());
+                });
+                if (!ok) { onDone?.Invoke(false, err); yield break; }
+
+                yield return _api.Get("/records", (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<RecordsResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "获取记录列表失败"; return; }
+                    _cacheAllRecords.Clear();
+                    if (resp.records != null)
+                        for (int i = 0; i < resp.records.Length; i++)
+                            if (resp.records[i] != null) _cacheAllRecords.Add(resp.records[i].ToModel());
+                });
+                if (!ok) { onDone?.Invoke(false, err); yield break; }
+            }
+
+            onDone?.Invoke(true, "");
+        }
+#endif
 
         public IEnumerator RegisterUserAsync(string username, string rawPassword, string realName, string email, Action<bool, string> onDone)
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/register",
+                JsonUtility.ToJson(new RegisterRequest { username = username, password = rawPassword, realName = realName, email = email }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok)
+                    {
+                        ok = false;
+                        err = (resp != null && !string.IsNullOrEmpty(resp.error)) ? resp.error : "注册失败";
+                        return;
+                    }
+                    ok = true;
+                });
+            onDone?.Invoke(ok, err);
+#else
             bool ok = false;
             string err = "";
             try
@@ -836,7 +1083,209 @@ WHERE record_id=@record_id;",
             }
             yield return null;
             onDone?.Invoke(ok, err);
+#endif
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        [Serializable] private class SimpleOkResponse { public bool ok; public string error; }
+        [Serializable] private class RegisterRequest { public string username; public string password; public string realName; public string email; }
+
+        [Serializable] private class AdminAddUserRequest { public string username; public string password; public string realName; public string email; public int role; }
+        [Serializable] private class AdminUpdateUserRequest { public string userId; public string realName; public string email; public int role; public string newPassword; }
+        [Serializable] private class ToggleActiveRequest { public string userId; public int isActive; }
+        [Serializable] private class DeleteUserRequest { public string userId; }
+        [Serializable] private class ResetPasswordRequest { public string userId; public string newPassword; }
+        [Serializable] private class AddRecordRequest { public string recordId; public string userId; public string experimentName; public string recordTime; public float score; }
+        [Serializable] private class CompleteRecordRequest { public string recordId; public float score; }
+        [Serializable] private class DeleteRecordRequest { public string recordId; }
+        [Serializable] private class UpsertExperimentRequest { public string experimentId; public string experimentName; public string experimentDescription; public string experimentImage; }
+        [Serializable] private class DeleteExperimentRequest { public string experimentId; }
+
+        public IEnumerator AdminAddUserAsync(string username, string rawPassword, string realName, string email, UserRole role, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/admin/user/add",
+                JsonUtility.ToJson(new AdminAddUserRequest { username = username, password = rawPassword, realName = realName, email = email, role = (int)role }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "添加用户失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator AdminUpdateUserAsync(string userId, string realName, string email, UserRole role, string newRawPassword, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/admin/user/update",
+                JsonUtility.ToJson(new AdminUpdateUserRequest { userId = userId, realName = realName, email = email, role = (int)role, newPassword = newRawPassword ?? "" }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "更新用户失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator DeleteUserAsync(string userId, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/admin/user/delete",
+                JsonUtility.ToJson(new DeleteUserRequest { userId = userId }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "删除用户失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator ToggleUserActiveAsync(string userId, bool isActive, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/admin/user/toggleActive",
+                JsonUtility.ToJson(new ToggleActiveRequest { userId = userId, isActive = isActive ? 1 : 0 }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "更新状态失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator ResetPasswordAsync(string userId, string newRawPassword, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/user/resetPassword",
+                JsonUtility.ToJson(new ResetPasswordRequest { userId = userId, newPassword = newRawPassword }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "重置密码失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator AddRecordAsync(ExperimentRecord record, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            if (record == null) { onDone?.Invoke(false, "record 为空"); yield break; }
+            yield return _api.PostJson("/record/add",
+                JsonUtility.ToJson(new AddRecordRequest
+                {
+                    recordId = record.recordId,
+                    userId = record.userId,
+                    experimentName = record.experimentName,
+                    recordTime = record.recordTime,
+                    score = record.score
+                }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "添加记录失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator CompleteRecordAsync(string recordId, float score, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/record/complete",
+                JsonUtility.ToJson(new CompleteRecordRequest { recordId = recordId, score = score }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "完成记录失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator DeleteRecordAsync(string recordId, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/record/delete",
+                JsonUtility.ToJson(new DeleteRecordRequest { recordId = recordId }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "删除记录失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator UpsertExperimentAsync(ExperimentModel exp, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            if (exp == null) { onDone?.Invoke(false, "exp 为空"); yield break; }
+            yield return _api.PostJson("/experiment/upsert",
+                JsonUtility.ToJson(new UpsertExperimentRequest
+                {
+                    experimentId = exp.experimentId,
+                    experimentName = exp.experimentName,
+                    experimentDescription = exp.experimentDescription,
+                    experimentImage = exp.experimentImage
+                }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "保存实验失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+
+        public IEnumerator DeleteExperimentAsync(string experimentId, Action<bool, string> onDone)
+        {
+            bool ok = false;
+            string err = "";
+            yield return _api.PostJson("/experiment/delete",
+                JsonUtility.ToJson(new DeleteExperimentRequest { experimentId = experimentId }),
+                (succ, e2, text) =>
+                {
+                    if (!succ) { ok = false; err = e2; return; }
+                    var resp = JsonUtility.FromJson<SimpleOkResponse>(text ?? "");
+                    if (resp == null || !resp.ok) { ok = false; err = resp != null ? resp.error : "删除实验失败"; return; }
+                    ok = true;
+                });
+            if (ok) yield return WarmupAfterLoginAsync((_, __) => { });
+            onDone?.Invoke(ok, err);
+        }
+#endif
 
         public IEnumerator LogoutAsync(Action<bool, string> onDone)
         {

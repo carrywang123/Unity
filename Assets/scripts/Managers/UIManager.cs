@@ -216,11 +216,42 @@ namespace ChemLab.Managers
                 return;
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            StartCoroutine(NavigateByRoleWebGL());
+            return;
+#endif
             if (user.role == Models.UserRole.Admin)
                 ShowAdminPanel();
             else
                 ShowUserPanel();
         }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        private IEnumerator NavigateByRoleWebGL()
+        {
+            ShowLoading("正在加载数据...");
+            bool ok = false;
+            string err = "";
+            yield return DataManager.Instance.WarmupAfterLoginAsync((succ, msg) =>
+            {
+                ok = succ;
+                err = msg;
+            });
+            HideLoading();
+
+            if (!ok)
+            {
+                ShowMessage("加载失败", string.IsNullOrEmpty(err) ? "无法从服务器获取数据" : err, ShowLoginPanel);
+                yield break;
+            }
+
+            var user = DataManager.Instance.CurrentUser;
+            if (user != null && user.role == Models.UserRole.Admin)
+                ShowAdminPanel();
+            else
+                ShowUserPanel();
+        }
+#endif
 
         #endregion
 

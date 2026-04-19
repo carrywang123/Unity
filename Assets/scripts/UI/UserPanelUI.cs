@@ -850,6 +850,24 @@ namespace ChemLab.UI
                 return;
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            UIManager.Instance.ShowLoading("正在修改密码...");
+            StartCoroutine(DataManager.Instance.ResetPasswordAsync(user.userId, newPwd, (ok, err) =>
+            {
+                UIManager.Instance.HideLoading();
+                if (ok)
+                {
+                    SetChangeMsg("✓ 密码修改成功！", COLOR_OK);
+                    if (oldPasswordInput        != null) oldPasswordInput.text        = "";
+                    if (newPasswordInput        != null) newPasswordInput.text        = "";
+                    if (confirmNewPasswordInput != null) confirmNewPasswordInput.text = "";
+                }
+                else
+                {
+                    SetChangeMsg(err, COLOR_ERROR);
+                }
+            }));
+#else
             bool ok = DataManager.Instance.ResetPassword(user.userId, newPwd, out string err);
             if (ok)
             {
@@ -862,6 +880,7 @@ namespace ChemLab.UI
             {
                 SetChangeMsg(err, COLOR_ERROR);
             }
+#endif
         }
 
         private void SetChangeMsg(string msg, Color color)
@@ -897,7 +916,23 @@ namespace ChemLab.UI
                 {
                     // 创建实验记录
                     var record = new ExperimentRecord(user.userId, experimentName);
+#if UNITY_WEBGL && !UNITY_EDITOR
+                    UIManager.Instance.ShowLoading("正在创建记录...");
+                    StartCoroutine(DataManager.Instance.AddRecordAsync(record, (ok, err) =>
+                    {
+                        UIManager.Instance.HideLoading();
+                        if (!ok)
+                        {
+                            UIManager.Instance.ShowMessage("创建记录失败", err);
+                            return;
+                        }
+                        UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，祝实验顺利！");
+                        SimulateExperimentComplete(record.recordId, experimentName);
+                    }));
+                    return;
+#else
                     DataManager.Instance.AddRecord(record);
+#endif
 
                     UIManager.Instance.ShowToast($"实验【{experimentName}】已开始，祝实验顺利！");
 
@@ -925,12 +960,34 @@ namespace ChemLab.UI
                           : score >= 75 ? "实验基本完成，有少量误差。"
                           : "实验完成，建议复习相关知识点。";
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            UIManager.Instance.ShowLoading("正在提交成绩...");
+            bool ok2 = false;
+            string err2 = "";
+            yield return StartCoroutine(DataManager.Instance.CompleteRecordAsync(recordId, score, (ok, err) =>
+            {
+                ok2 = ok;
+                err2 = err;
+            }));
+            UIManager.Instance.HideLoading();
+            if (!ok2)
+            {
+                UIManager.Instance.ShowMessage("提交失败", err2);
+                yield break;
+            }
+            UIManager.Instance.ShowMessage(
+                "实验完成",
+                $"【{experimentName}】实验完成！\n得分：{score:F1} 分\n{result}",
+                () => RefreshRecords()
+            );
+#else
             DataManager.Instance.CompleteRecord(recordId, score, result);
             UIManager.Instance.ShowMessage(
                 "实验完成",
                 $"【{experimentName}】实验完成！\n得分：{score:F1} 分\n{result}",
                 () => RefreshRecords()
             );
+#endif
         }
 
         #endregion
