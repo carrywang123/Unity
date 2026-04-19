@@ -17,6 +17,7 @@ using UnityEngine.SceneManagement;
 using TMPro;
 using ChemLab.Managers;
 using ChemLab.Models;
+using ChemLab.Utils;
 
 namespace ChemLab.UI
 {
@@ -698,6 +699,7 @@ namespace ChemLab.UI
             obj.transform.SetParent(parent, false);
             var text = obj.AddComponent<Text>();
             text.text      = content;
+            text.font      = UIFont.Get();
             text.fontSize  = fontSize;
             text.color     = color;
             text.fontStyle = style;
@@ -714,6 +716,7 @@ namespace ChemLab.UI
             obj.transform.SetParent(parent, false);
             var text = obj.AddComponent<Text>();
             text.text      = hint;
+            text.font      = UIFont.Get();
             text.fontSize  = 16;
             text.color     = Color.gray;
             text.alignment = TextAnchor.MiddleCenter;

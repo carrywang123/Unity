@@ -23582,6 +23582,10 @@ PrefabInstance:
       value: -200
       objectReference: {fileID: 0}
     - target: {fileID: 1141108084326572155, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_SizeDelta.y
+      value: 50
+      objectReference: {fileID: 0}
+    - target: {fileID: 1141108084326572155, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
       propertyPath: m_AnchoredPosition.x
       value: 100
       objectReference: {fileID: 0}
@@ -27189,6 +27193,34 @@ PrefabInstance:
     - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
       propertyPath: m_text
       value: " 1.\u5C06\u52A0\u597D1\u53F7\u6EB6\u6DB2\u7684\u6BD4\u8272\u76BF\u653E\u5165\u5206\u5149\u5149\u5EA6\u8BA1\u4E2D\u6D4B\u91CF\u5149\u5BC6\u5EA6\uFF0C\u8BB0\u5F55\u6570\u636E"
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_fontSize
+      value: 24
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_fontColor.b
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_fontColor.g
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_fontColor.r
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_fontSizeBase
+      value: 24
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_enableAutoSizing
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8038226826242784839, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
+      propertyPath: m_fontColor32.rgba
+      value: 4278190080
       objectReference: {fileID: 0}
     - target: {fileID: 8041748008617378030, guid: 92c2c191dcc3a1748b2917f3fee27206, type: 3}
       propertyPath: m_SizeDelta.x

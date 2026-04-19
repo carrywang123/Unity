@@ -445,6 +445,7 @@ namespace ChemLab.UI
             textObj.transform.SetParent(item.transform, false);
             var text = textObj.AddComponent<Text>();
             text.text      = info;
+            text.font      = UIFont.Get();
             text.fontSize  = 14;
             text.color     = user.isActive ? Color.black : Color.gray;
             text.alignment = TextAnchor.MiddleLeft;
@@ -467,6 +468,7 @@ namespace ChemLab.UI
                 adminTag.transform.SetParent(item.transform, false);
                 var tagText = adminTag.AddComponent<Text>();
                 tagText.text      = "（内置管理员）";
+                tagText.font      = UIFont.Get();
                 tagText.fontSize  = 12;
                 tagText.color     = new Color(0.2f, 0.5f, 0.9f);
                 tagText.alignment = TextAnchor.MiddleCenter;
@@ -494,6 +496,7 @@ namespace ChemLab.UI
             textObj.transform.SetParent(btnObj.transform, false);
             var text = textObj.AddComponent<Text>();
             text.text      = label;
+            text.font      = UIFont.Get();
             text.fontSize  = 13;
             text.color     = Color.white;
             text.alignment = TextAnchor.MiddleCenter;
@@ -845,6 +848,7 @@ namespace ChemLab.UI
                 textObj.transform.SetParent(item.transform, false);
                 var text = textObj.AddComponent<Text>();
                 text.text      = info;
+                text.font      = UIFont.Get();
                 text.fontSize  = 13;
                 text.color     = Color.black;
                 text.alignment = TextAnchor.MiddleLeft;

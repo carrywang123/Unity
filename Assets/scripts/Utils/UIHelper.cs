@@ -46,7 +46,7 @@ namespace ChemLab.Utils
             text.color     = color ?? Color.black;
             text.alignment = anchor;
             text.fontStyle = style;
-            text.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font      = UIFont.Get();
 
             return text;
         }
@@ -126,7 +126,7 @@ namespace ChemLab.Utils
             text.fontSize  = 14;
             text.color     = Color.black;
             text.alignment = TextAnchor.MiddleLeft;
-            text.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.font      = UIFont.Get();
             input.textComponent = text;
 
             // 占位符
@@ -144,7 +144,7 @@ namespace ChemLab.Utils
             phText.color     = new Color(0.6f, 0.6f, 0.6f);
             phText.alignment = TextAnchor.MiddleLeft;
             phText.fontStyle = FontStyle.Italic;
-            phText.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            phText.font      = UIFont.Get();
             input.placeholder = phText;
 
             if (isPassword)
