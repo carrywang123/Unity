@@ -12,7 +12,7 @@ namespace ChemLab.Utils
     /// - hover 时按钮轻微上移，exit/disable 后回归原位
     /// </summary>
     [DisallowMultipleComponent]
-    public sealed class UICursorHoverTarget : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+    public sealed class UICursorHoverTarget : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler
     {
         [Header("Hover 动效")]
         [Tooltip("hover 时向上移动的像素（anchoredPosition.y 增量）")]
@@ -25,6 +25,7 @@ namespace ChemLab.Utils
         private RectTransform _rectTransform;
         private Vector2 _baseAnchoredPos;
         private Coroutine _moveCoroutine;
+        private bool _hovered;
 
         private void Awake()
         {
@@ -34,6 +35,7 @@ namespace ChemLab.Utils
 
         private void OnEnable()
         {
+            _hovered = false;
             CaptureBasePosRealtime();
         }
 
@@ -42,7 +44,9 @@ namespace ChemLab.Utils
             if(ShouldDisableMoveUpByHierarchy()) return;
             if (_selectable != null && !_selectable.IsInteractable()) return;
             UICursor.SetHand();
-            CaptureBasePosRealtime();
+            if (!_hovered)
+                CaptureBasePosRealtime();
+            _hovered = true;
             MoveTo(_baseAnchoredPos + new Vector2(0f, hoverMoveUp));
         }
 
@@ -50,8 +54,16 @@ namespace ChemLab.Utils
         {
             if(ShouldDisableMoveUpByHierarchy()) return;
             UICursor.SetDefault();
-            CaptureBasePosRealtimeFromHovered(hoverMoveUp);
+            _hovered = false;
             MoveBackToBase();
+        }
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            // 某些按钮点击后会立刻隐藏/切换面板，导致来不及触发 OnPointerExit；
+            // 这里在按下时就先复位，避免位置残留。
+            _hovered = false;
+            MoveBackToBase(immediate: true);
         }
 
         private void OnDisable()
@@ -60,6 +72,7 @@ namespace ChemLab.Utils
             UICursor.SetDefault();
 
             // 避免面板切换时位置卡住
+            _hovered = false;
             MoveBackToBase(immediate: true);
         }
 
@@ -73,13 +86,6 @@ namespace ChemLab.Utils
         {
             if (_rectTransform == null) return;
             _baseAnchoredPos = _rectTransform.anchoredPosition;
-        }
-
-        private void CaptureBasePosRealtimeFromHovered(float appliedMoveUp)
-        {
-            if (_rectTransform == null) return;
-            // 退出时当前通常处于“上移后”的位置，回退基准应当是实时位置减去上移量
-            _baseAnchoredPos = _rectTransform.anchoredPosition - new Vector2(0f, appliedMoveUp);
         }
 
         private bool ShouldDisableMoveUpByHierarchy()

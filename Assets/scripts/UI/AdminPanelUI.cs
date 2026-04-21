@@ -10,6 +10,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
@@ -62,6 +63,11 @@ namespace ChemLab.UI
         public InputField addPasswordInput;
         public InputField addRealNameInput;
         public InputField addEmailInput;
+        [Header("=== 添加用户：实时校验提示（可选绑定）===")]
+        public Text addUsernameHint;
+        public Text addPasswordHint;
+        public Text addRealNameHint;
+        public Text addEmailHint;
         public Dropdown   addRoleDropdown;
         public Button     confirmAddUserBtn;
         public Button     cancelAddUserBtn;
@@ -76,6 +82,10 @@ namespace ChemLab.UI
         public InputField resetEmailInput;      // 可修改邮箱
         public Dropdown   resetRoleDropdown;    // 可修改角色（0=管理员，1=普通用户）
         public InputField newPasswordInput;
+        [Header("=== 修改用户：实时校验提示（可选绑定）===")]
+        public Text resetRealNameHint;
+        public Text resetEmailHint;
+        public Text resetNewPasswordHint;
         public Button     confirmResetBtn;
         public Button     cancelResetBtn;
         public Text       resetErrorText;
@@ -107,6 +117,9 @@ namespace ChemLab.UI
         private List<ExperimentRecord> _allRecords = new List<ExperimentRecord>();
         private string _pendingResetUserId = "";
         private LabManifest _labManifest;
+        private static readonly Color COLOR_OK    = new Color(0.1f, 0.7f, 0.3f);
+        private static readonly Color COLOR_ERROR = new Color(0.9f, 0.2f, 0.2f);
+        private static readonly Color COLOR_GRAY  = new Color(0.6f, 0.6f, 0.6f);
 
         // ─────────────────────────────────────────────────────
         #region Unity 生命周期
@@ -148,6 +161,17 @@ namespace ChemLab.UI
             // 重置密码子面板
             if (confirmResetBtn != null) confirmResetBtn.onClick.AddListener(OnConfirmReset);
             if (cancelResetBtn  != null) cancelResetBtn.onClick.AddListener(OnCancelReset);
+
+            // 添加用户：实时校验
+            if (addUsernameInput != null) addUsernameInput.onValueChanged.AddListener(_ => ValidateAddUsername());
+            if (addPasswordInput != null) addPasswordInput.onValueChanged.AddListener(_ => ValidateAddPassword());
+            if (addRealNameInput != null) addRealNameInput.onValueChanged.AddListener(_ => ValidateAddRealName());
+            if (addEmailInput    != null) addEmailInput.onValueChanged.AddListener(_ => ValidateAddEmail());
+
+            // 修改用户：实时校验
+            if (resetRealNameInput != null) resetRealNameInput.onValueChanged.AddListener(_ => ValidateResetRealName());
+            if (resetEmailInput    != null) resetEmailInput.onValueChanged.AddListener(_ => ValidateResetEmail());
+            if (newPasswordInput   != null) newPasswordInput.onValueChanged.AddListener(_ => ValidateResetNewPassword());
 
             // 实验记录
             if (searchRecordBtn != null) searchRecordBtn.onClick.AddListener(OnSearchRecord);
@@ -616,6 +640,10 @@ namespace ChemLab.UI
             if (addRealNameInput != null) addRealNameInput.text = "";
             if (addEmailInput    != null) addEmailInput.text    = "";
             if (addUserErrorText != null) addUserErrorText.text = "";
+            ClearHint(addUsernameHint);
+            ClearHint(addPasswordHint);
+            ClearHint(addRealNameHint);
+            ClearHint(addEmailHint);
             addUserSubPanel.SetActive(true);
         }
 
@@ -627,6 +655,12 @@ namespace ChemLab.UI
             string email    = addEmailInput    != null ? addEmailInput.text.Trim()    : "";
             UserRole role   = (addRoleDropdown != null && addRoleDropdown.value == 0)
                               ? UserRole.User : UserRole.Admin;
+
+            if (!ValidateAddAll())
+            {
+                if (addUserErrorText != null) addUserErrorText.text = "请先修正输入框下方的提示错误。";
+                return;
+            }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
             UIManager.Instance.ShowLoading("正在添加用户...");
@@ -686,6 +720,14 @@ namespace ChemLab.UI
 
             if (newPasswordInput        != null) newPasswordInput.text        = "";
             if (resetErrorText          != null) resetErrorText.text          = "";
+            ClearHint(resetRealNameHint);
+            ClearHint(resetEmailHint);
+            ClearHint(resetNewPasswordHint);
+
+            // 预先跑一次校验，立刻显示当前内容是否合规
+            ValidateResetRealName();
+            ValidateResetEmail();
+            ValidateResetNewPassword();
         }
 
         private void OnConfirmReset()
@@ -696,6 +738,12 @@ namespace ChemLab.UI
             string newPwd = newPasswordInput != null ? newPasswordInput.text.Trim() : "";
             UserRole role = UserRole.User;
             if (resetRoleDropdown != null && resetRoleDropdown.value == 0) role = UserRole.Admin;
+
+            if (!ValidateResetAll())
+            {
+                if (resetErrorText != null) resetErrorText.text = "请先修正输入框下方的提示错误。";
+                return;
+            }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
             UIManager.Instance.ShowLoading("正在更新用户...");
@@ -731,6 +779,134 @@ namespace ChemLab.UI
         private void OnCancelReset()
         {
             if (resetPasswordSubPanel != null) resetPasswordSubPanel.SetActive(false);
+        }
+
+        #endregion
+
+        // ─────────────────────────────────────────────────────
+        #region 添加/修改用户的校验（实时提示）
+        // ─────────────────────────────────────────────────────
+
+        private bool ValidateAddAll()
+        {
+            bool ok = true;
+            ok &= ValidateAddUsername();
+            ok &= ValidateAddPassword();
+            ok &= ValidateAddRealName();
+            ok &= ValidateAddEmail();
+            return ok;
+        }
+
+        private bool ValidateAddUsername()
+        {
+            if (addUsernameInput == null) return true;
+            string val = addUsernameInput.text.Trim();
+            if (string.IsNullOrEmpty(val))
+            { SetHint(addUsernameHint, "用户名不能为空", COLOR_ERROR); return false; }
+            if (val.Length < 3)
+            { SetHint(addUsernameHint, "用户名至少3个字符", COLOR_ERROR); return false; }
+            if (val.Length > 20)
+            { SetHint(addUsernameHint, "用户名不能超过20个字符", COLOR_ERROR); return false; }
+            if (!Regex.IsMatch(val, @"^[a-zA-Z0-9_\u4e00-\u9fa5]+$"))
+            { SetHint(addUsernameHint, "用户名只能包含字母、数字、下划线或中文", COLOR_ERROR); return false; }
+            SetHint(addUsernameHint, "✓ 用户名可用", COLOR_OK);
+            return true;
+        }
+
+        private bool ValidateAddPassword()
+        {
+            if (addPasswordInput == null) return true;
+            string val = addPasswordInput.text ?? "";
+            if (string.IsNullOrEmpty(val))
+            { SetHint(addPasswordHint, "密码不能为空", COLOR_ERROR); return false; }
+            if (val.Length < 6)
+            { SetHint(addPasswordHint, "密码至少6位", COLOR_ERROR); return false; }
+            SetHint(addPasswordHint, "✓", COLOR_OK);
+            return true;
+        }
+
+        private bool ValidateAddRealName()
+        {
+            if (addRealNameInput == null) return true;
+            string val = addRealNameInput.text.Trim();
+            if (string.IsNullOrEmpty(val))
+            { SetHint(addRealNameHint, "真实姓名不能为空", COLOR_ERROR); return false; }
+            if (val.Length > 20)
+            { SetHint(addRealNameHint, "姓名不能超过20个字符", COLOR_ERROR); return false; }
+            SetHint(addRealNameHint, "✓", COLOR_OK);
+            return true;
+        }
+
+        private bool ValidateAddEmail()
+        {
+            if (addEmailInput == null) return true;
+            string val = addEmailInput.text.Trim();
+            if (string.IsNullOrEmpty(val))
+            { SetHint(addEmailHint, "邮箱为选填项", COLOR_GRAY); return true; }
+            if (!Regex.IsMatch(val, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            { SetHint(addEmailHint, "邮箱格式不正确", COLOR_ERROR); return false; }
+            SetHint(addEmailHint, "✓ 邮箱格式正确", COLOR_OK);
+            return true;
+        }
+
+        private bool ValidateResetAll()
+        {
+            bool ok = true;
+            ok &= ValidateResetRealName();
+            ok &= ValidateResetEmail();
+            ok &= ValidateResetNewPassword();
+            return ok;
+        }
+
+        private bool ValidateResetRealName()
+        {
+            if (resetRealNameInput == null) return true;
+            string val = resetRealNameInput.text.Trim();
+            if (string.IsNullOrEmpty(val))
+            { SetHint(resetRealNameHint, "真实姓名不能为空", COLOR_ERROR); return false; }
+            if (val.Length > 20)
+            { SetHint(resetRealNameHint, "姓名不能超过20个字符", COLOR_ERROR); return false; }
+            SetHint(resetRealNameHint, "✓", COLOR_OK);
+            return true;
+        }
+
+        private bool ValidateResetEmail()
+        {
+            if (resetEmailInput == null) return true;
+            string val = resetEmailInput.text.Trim();
+            if (string.IsNullOrEmpty(val))
+            { SetHint(resetEmailHint, "邮箱为选填项", COLOR_GRAY); return true; }
+            if (!Regex.IsMatch(val, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            { SetHint(resetEmailHint, "邮箱格式不正确", COLOR_ERROR); return false; }
+            SetHint(resetEmailHint, "✓ 邮箱格式正确", COLOR_OK);
+            return true;
+        }
+
+        private bool ValidateResetNewPassword()
+        {
+            if (newPasswordInput == null) return true;
+            string val = (newPasswordInput.text ?? "").Trim();
+            if (string.IsNullOrEmpty(val))
+            { SetHint(resetNewPasswordHint, "留空则不修改密码", COLOR_GRAY); return true; }
+            if (val.Length < 6)
+            { SetHint(resetNewPasswordHint, "新密码至少6位", COLOR_ERROR); return false; }
+            SetHint(resetNewPasswordHint, "✓", COLOR_OK);
+            return true;
+        }
+
+        private static void SetHint(Text hint, string msg, Color color)
+        {
+            if (hint == null) return;
+            hint.text = msg;
+            hint.color = color;
+            if (hint.gameObject != null) hint.gameObject.SetActive(true);
+        }
+
+        private static void ClearHint(Text hint)
+        {
+            if (hint == null) return;
+            hint.text = "";
+            if (hint.gameObject != null) hint.gameObject.SetActive(false);
         }
 
         #endregion

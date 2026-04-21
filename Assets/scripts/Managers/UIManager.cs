@@ -9,6 +9,8 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
+using ChemLab.UI;
 using ChemLab.Utils;
 
 namespace ChemLab.Managers
@@ -75,6 +77,15 @@ namespace ChemLab.Managers
         private Action _onCancelCallback;
         private Coroutine _toastCoroutine;
 
+        [Header("=== 全局 AI 悬浮窗 ===")]
+        public bool enableGlobalAiChat = true;
+        [Tooltip("DeepSeek API Key（可在 UserPanelUI 登录后覆盖）")]
+        public string aiChatApiKey = "";
+
+        private Canvas _aiChatCanvas;
+        private DeepSeekChatPanelUI _aiChat;
+        private GameObject _aiChatRoot;
+
         // ─────────────────────────────────────────────────────
         #region Unity 生命周期
         // ─────────────────────────────────────────────────────
@@ -89,6 +100,9 @@ namespace ChemLab.Managers
             Instance = this;
             DontDestroyOnLoad(gameObject);
             SceneManager.sceneLoaded += OnSceneLoaded;
+
+            if (enableGlobalAiChat)
+                EnsureGlobalAiChat();
         }
 
         private void OnDestroy()
@@ -188,6 +202,47 @@ namespace ChemLab.Managers
         }
 
         #endregion
+
+        public void SetAiChatApiKey(string key)
+        {
+            aiChatApiKey = (key ?? "").Trim();
+            if (_aiChat != null) _aiChat.SetApiKey(aiChatApiKey);
+        }
+
+        private void EnsureEventSystem()
+        {
+            if (EventSystem.current != null) return;
+
+            var es = new GameObject("EventSystem_Runtime");
+            DontDestroyOnLoad(es);
+            es.AddComponent<EventSystem>();
+            es.AddComponent<StandaloneInputModule>();
+        }
+
+        private void EnsureGlobalAiChat()
+        {
+            EnsureEventSystem();
+
+            if (_aiChatRoot == null)
+            {
+                var prefab = Resources.Load<GameObject>("Prefabs/AiChatOverlay");
+                if (prefab == null)
+                {
+                    Debug.LogWarning("[UIManager] 未找到预制体 Resources/Prefabs/AiChatOverlay.prefab，已跳过全局 AI 悬浮窗。");
+                    return;
+                }
+
+                _aiChatRoot = Instantiate(prefab);
+                _aiChatRoot.name = "AiChatOverlay";
+                DontDestroyOnLoad(_aiChatRoot);
+            }
+
+            if (_aiChat == null)
+                _aiChat = _aiChatRoot.GetComponentInChildren<DeepSeekChatPanelUI>(true);
+
+            if (_aiChat != null)
+                _aiChat.SetApiKey(aiChatApiKey);
+        }
 
         private void InstallCursorHoverForAllButtons()
         {

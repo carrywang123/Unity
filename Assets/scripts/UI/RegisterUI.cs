@@ -126,20 +126,53 @@ namespace ChemLab.UI
             string password = passwordInput.text;
             string realName = realNameInput != null ? realNameInput.text.Trim() : "";
             string email    = emailInput    != null ? emailInput.text.Trim()    : "";
-
+            Debug.Log($"RegisterUI: OnRegisterClick: username={username}, password={password}, realName={realName}, email={email}");
             StartCoroutine(DataManager.Instance.RegisterUserAsync(username, password, realName, email, (success, errorMsg) =>
             {
+                // 请求返回时本组件可能已被切换/销毁，避免空引用
+                if (this == null || !isActiveAndEnabled) return;
+
                 if (!success)
                 {
-                    ShowGlobalError(errorMsg);
+                    Debug.Log("1");
+                    try
+                    {
+                        ShowGlobalError(errorMsg);
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogError("[RegisterUI] ShowGlobalError 发生异常：" + e);
+                    }
                     return;
                 }
+                Debug.Log("2");
+                try
+                {
+                    ClearGlobalError();
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError("[RegisterUI] ClearGlobalError 发生异常：" + e);
+                }
 
-                ClearGlobalError();
-                UIManager.Instance.ShowMessage(
-                    "注册成功",
-                    $"账号 [{username}] 注册成功！\n2 秒后自动跳转到登录页。"
-                );
+                try
+                {
+                    if (UIManager.Instance != null)
+                    {
+                        UIManager.Instance.ShowMessage(
+                            "注册成功",
+                            $"账号 [{username}] 注册成功！\n2 秒后自动跳转到登录页。"
+                        );
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[RegisterUI] UIManager.Instance 为空，无法显示注册成功弹窗。");
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError("[RegisterUI] ShowMessage 发生异常：" + e);
+                }
                 StartCoroutine(AutoBackToLogin(2f));
             }));
         }
@@ -278,10 +311,19 @@ namespace ChemLab.UI
 
         private void ShowGlobalError(string msg)
         {
-            if (globalErrorText == null) return;
-            globalErrorText.text  = msg;
-            globalErrorText.color = COLOR_ERROR;
-            globalErrorText.gameObject.SetActive(true);
+            // 允许未绑定 globalErrorText 时仍能提示错误（避免空引用导致二次崩溃）
+            if (globalErrorText != null)
+            {
+                globalErrorText.text  = msg;
+                globalErrorText.color = COLOR_ERROR;
+                if (globalErrorText.gameObject != null)
+                    globalErrorText.gameObject.SetActive(true);
+                return;
+            }
+
+            Debug.LogWarning("[RegisterUI] globalErrorText 未绑定，改用弹窗提示：" + msg);
+            if (UIManager.Instance != null)
+                UIManager.Instance.ShowMessage("注册失败", string.IsNullOrEmpty(msg) ? "注册失败" : msg);
         }
 
         private void ClearGlobalError()

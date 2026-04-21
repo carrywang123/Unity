@@ -16,7 +16,7 @@ using ChemLab.Models;
 using ChemLab.Database;
 using ChemLab.Utils;
 #if UNITY_WEBGL
-using ChemLab.Networking;
+using game_1;
 #endif
 
 namespace ChemLab.Managers
@@ -286,6 +286,21 @@ ON DUPLICATE KEY UPDATE
                     { "@experiment_image", "" } // 约定：null 用空字符串存储
                 });
 
+            _db.ExecuteNonQuery(@"
+INSERT INTO experiments (experiment_id, experiment_name, experiment_description, experiment_image)
+VALUES (@experiment_id, @experiment_name, @experiment_description, @experiment_image)
+ON DUPLICATE KEY UPDATE
+  experiment_name        = VALUES(experiment_name),
+  experiment_description = VALUES(experiment_description),
+  experiment_image       = VALUES(experiment_image);",
+                new Dictionary<string, object>
+                {
+                    { "@experiment_id", "2" },
+                    { "@experiment_name", "高硫锰矿的高效利用技术研究" },
+                    { "@experiment_description", "实现对高硫锰矿经济、环保、高效的新型综合利用" },
+                    { "@experiment_image", "" }
+                });
+
             // records 表
             _db.ExecuteNonQuery(@"
 CREATE TABLE IF NOT EXISTS records (
@@ -348,6 +363,20 @@ VALUES (@user_id, @username, @password, @real_name, @email, @role, @create_time,
 #if UNITY_WEBGL && !UNITY_EDITOR
             return new List<UserModel>(_cacheUsers);
 #else
+            if (_db == null)
+            {
+                try { InitMySql(); }
+                catch (Exception e)
+                {
+                    Debug.LogError("[DataManager] MySQL 未初始化，无法获取用户列表：" + e.Message);
+                }
+            }
+            if (_db == null)
+            {
+                Debug.LogError("[DataManager] MySQL 未初始化（_db=null），返回空用户列表。");
+                return new List<UserModel>();
+            }
+
             var rows = _db.Query("SELECT * FROM users;");
             var list = new List<UserModel>(rows.Count);
             foreach (var r in rows) list.Add(RowToUser(r));
@@ -408,6 +437,25 @@ VALUES (@user_id, @username, @password, @real_name, @email, @role, @create_time,
                                  out string errorMsg)
         {
             errorMsg = "";
+
+            // 直连 MySQL 模式下，_db 可能因初始化失败/顺序问题为 null
+            if (_db == null)
+            {
+                try
+                {
+                    InitMySql();
+                }
+                catch (Exception e)
+                {
+                    errorMsg = "数据库初始化失败：" + e.Message;
+                    return false;
+                }
+            }
+            if (_db == null)
+            {
+                errorMsg = "数据库未初始化，无法注册。";
+                return false;
+            }
 
             if (string.IsNullOrWhiteSpace(username))
             { errorMsg = "用户名不能为空！"; return false; }
@@ -802,6 +850,23 @@ LEFT JOIN users u ON u.user_id = r.user_id;");
             // WebGL：WarmupAfterLoginAsync 已拉取当前用户记录；这里只返回缓存
             return new List<ExperimentRecord>(_cacheMyRecords);
             #else
+            if (_db == null)
+            {
+                try
+                {
+                    InitMySql();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError("[DataManager] MySQL 未初始化，无法获取记录：" + e.Message);
+                }
+            }
+            if (_db == null)
+            {
+                Debug.LogError("[DataManager] MySQL 未初始化（_db=null），返回空记录列表。");
+                return new List<ExperimentRecord>();
+            }
+
             var rows = _db.Query(@"
 SELECT r.record_id, r.user_id, u.username AS username, u.real_name AS realname, r.experiment_name, r.record_time, r.score
 FROM records r

@@ -67,6 +67,27 @@ namespace ChemLab.UI
         [Tooltip("默认实验图片（按顺序轮流显示；建议填 4 张）")]
         public Sprite[] defaultExperimentSprites;
 
+        [Header("=== 实验入口（编辑器手动绑定 6 个按钮） ===")]
+        [Tooltip("第 1 个实验按钮：进入 Lab/1/SampleScene（场景名 SampleScene）")]
+        public Button experimentButton1;
+        [Tooltip("第 2 个实验按钮：进入 Lab/2/实验场景（场景名 实验场景）")]
+        public Button experimentButton2;
+        [Tooltip("第 3 个实验按钮：未开放")]
+        public Button experimentButton3;
+        [Tooltip("第 4 个实验按钮：未开放")]
+        public Button experimentButton4;
+        [Tooltip("第 5 个实验按钮：未开放")]
+        public Button experimentButton5;
+        [Tooltip("第 6 个实验按钮：未开放")]
+        public Button experimentButton6;
+
+        [Header("=== AI 化学助手 ===")]
+        [Tooltip("在登录后主界面「首页」底部动态创建 DeepSeek 对话条")]
+        public bool enableAiChatOnHome = true;
+
+        [Tooltip("DeepSeek API Key（填写后首页 AI 助手才可请求网络）")]
+        public string aiChatApiKey = "";
+
         // ── Profile/Info 面板内容 ─────────────────────────────
         [Header("=== Profile/Info ===")]
         public InputField profileIdText;
@@ -160,6 +181,9 @@ namespace ChemLab.UI
             SetReadonly(profileUsernameText);
             SetReadonly(profileRealNameText);
             SetReadonly(profileEmailText);
+            // 悬浮窗由 UIManager 创建并跨场景持久，这里不再挂在 HomePanel 下动态创建
+
+            BindExperimentButtons();
         }
 
         #endregion
@@ -175,6 +199,10 @@ namespace ChemLab.UI
 
             if (welcomeText  != null) welcomeText.text  = $"欢迎，{user.realName}";
             if (userInfoText != null) userInfoText.text = $"账号：{user.username}";
+
+            // 将 API Key 注入到全局 AI 悬浮窗（跨场景持久）
+            if (enableAiChatOnHome && UIManager.Instance != null)
+                UIManager.Instance.SetAiChatApiKey(aiChatApiKey);
 
             // 默认主面板：Home
             SwitchMainPanel(0);
@@ -253,7 +281,7 @@ namespace ChemLab.UI
             var user = DataManager.Instance.CurrentUser;
             if (user == null) return;
 
-            _myRecords = DataManager.Instance.GetRecordsByUser(user.userId);
+            _myRecords = DataManager.Instance.GetRecordsByUser(user.userId) ?? new List<ExperimentRecord>();
 
             int scoredCount = _myRecords.FindAll(r => r != null && r.score > 0f).Count;
             float avgScore = 0f;
@@ -269,8 +297,7 @@ namespace ChemLab.UI
             if (myCompletedCountText!= null) myCompletedCountText.text= $"已评分\n{scoredCount}";
             if (myAvgScoreText      != null) myAvgScoreText.text      = $"平均分\n{avgScore:F1}";
             if (lastLoginText       != null) lastLoginText.text       = $"上次登录：{user.lastLoginTime}";
-
-            RefreshExperimentEntries();
+            // 实验入口：由编辑器中预先放置的 6 个按钮展示，不再动态生成/查询数据库
         }
 
         #endregion
@@ -281,39 +308,38 @@ namespace ChemLab.UI
 
         private void RefreshExperimentEntries()
         {
-            if (experimentEntryContent == null) return;
-
-            // 清空旧条目
-            foreach (Transform child in experimentEntryContent)
-                Destroy(child.gameObject);
-
-            _defaultExperimentSpriteCursor = 0;
-
-            List<ExperimentModel> experiments = null;
-            try
-            {
-                experiments = DataManager.Instance.GetAllExperiments();
-            }
-            catch
-            {
-                experiments = null;
-            }
-
-            if (experiments == null || experiments.Count == 0)
-            {
-                CreateEmptyHint(experimentEntryContent, "暂无实验，请联系管理员添加实验。");
-                return;
-            }
-
-            for (int i = 0; i < experiments.Count; i++)
-            {
-                var e = experiments[i];
-                if (e == null) continue;
-                CreateExperimentEntryItem(e);
-            }
+            // 已停用：实验入口固定 6 个按钮，不从数据库查询也不清空 experimentEntryContent
+            return;
         }
 
-        private void CreateExperimentEntryItem(ExperimentModel exp)
+        private void BindExperimentButtons()
+        {
+            // 只负责绑定点击事件：按钮由编辑器拖入，不动态创建
+            if (experimentButton1 != null)
+            {
+                experimentButton1.onClick.RemoveAllListeners();
+                experimentButton1.onClick.AddListener(() => StartAndLoadSceneForExperiment("实验1", "SampleScene"));
+            }
+            if (experimentButton2 != null)
+            {
+                experimentButton2.onClick.RemoveAllListeners();
+                experimentButton2.onClick.AddListener(() => StartAndLoadSceneForExperiment("实验2", "实验场景"));
+            }
+
+            void BindLocked(Button b)
+            {
+                if (b == null) return;
+                b.onClick.RemoveAllListeners();
+                b.onClick.AddListener(() => UIManager.Instance.ShowMessage("提示", "实验暂未开放"));
+            }
+
+            BindLocked(experimentButton3);
+            BindLocked(experimentButton4);
+            BindLocked(experimentButton5);
+            BindLocked(experimentButton6);
+        }
+
+        private void CreateExperimentEntryItem(int slotIndex, ExperimentModel exp)
         {
             if (experimentEntryContent == null) return;
 
@@ -329,7 +355,7 @@ namespace ChemLab.UI
                     if (ui.button != null)
                     {
                         ui.button.onClick.RemoveAllListeners();
-                        ui.button.onClick.AddListener(() => OnStartExperiment(exp));
+                        ui.button.onClick.AddListener(() => OnStartExperiment(slotIndex, exp));
                     }
                 }
                 else
@@ -349,7 +375,7 @@ namespace ChemLab.UI
                     if (btn != null)
                     {
                         btn.onClick.RemoveAllListeners();
-                        btn.onClick.AddListener(() => OnStartExperiment(exp));
+                        btn.onClick.AddListener(() => OnStartExperiment(slotIndex, exp));
                     }
                 }
                 return;
@@ -366,7 +392,7 @@ namespace ChemLab.UI
             imgBg.color = new Color(0.95f, 0.97f, 1f, 1f);
 
             var btn2 = item.AddComponent<Button>();
-            btn2.onClick.AddListener(() => OnStartExperiment(exp));
+            btn2.onClick.AddListener(() => OnStartExperiment(slotIndex, exp));
 
             var layout = item.AddComponent<VerticalLayoutGroup>();
             layout.padding = new RectOffset(16, 16, 10, 10);
@@ -416,19 +442,27 @@ namespace ChemLab.UI
             return null;
         }
 
-        private void OnStartExperiment(ExperimentModel exp)
+        private void OnStartExperiment(int slotIndex, ExperimentModel exp)
         {
             if (exp == null) return;
             string name = exp.experimentName ?? "";
 
-            // 吸光度检验：进入 Assets/Lab/2/实验场景.unity（场景名：实验场景）
-            if (string.Equals(name, "吸光度检验", StringComparison.Ordinal))
+            // 主界面固定 6 个实验按钮：
+            // - 第 1 个按钮（slot 0）-> Assets/Lab/1/SampleScene.unity（场景名：SampleScene）
+            // - 第 2 个按钮（slot 1）-> Assets/Lab/2/实验场景.unity（场景名：实验场景）
+            // - 其余按钮 -> 提示“实验暂未开放”
+            if (slotIndex == 0)
+            {
+                StartAndLoadSceneForExperiment(name, "SampleScene");
+                return;
+            }
+            if (slotIndex == 1)
             {
                 StartAndLoadSceneForExperiment(name, "实验场景");
                 return;
             }
 
-            OnStartExperiment(name, "");
+            UIManager.Instance.ShowMessage("提示", "实验暂未开放");
         }
 
         private void StartAndLoadSceneForExperiment(string experimentName, string sceneName)
