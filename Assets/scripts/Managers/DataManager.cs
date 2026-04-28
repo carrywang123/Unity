@@ -15,7 +15,7 @@ using UnityEngine;
 using ChemLab.Models;
 using ChemLab.Database;
 using ChemLab.Utils;
-#if UNITY_WEBGL
+#if UNITY_WEBGL && !UNITY_EDITOR
 using game_1;
 #endif
 
@@ -49,6 +49,10 @@ namespace ChemLab.Managers
         [Tooltip("连接超时（秒）")]
         public int mysqlConnectTimeoutSeconds = 5;
 
+        [Header("=== 调试输出 ===")]
+        [Tooltip("开启后会在注册/登录时输出更多诊断日志（不会输出明文密码）")]
+        public bool enableAuthDebugLog = false;
+
         private MySqlDb _db;
         private string _mysqlConfigPath;
 
@@ -58,7 +62,7 @@ namespace ChemLab.Managers
         [Tooltip("WebGL API 根地址（须含 /api），例如 http://118.25.40.159:7070/api")]
         public string apiBaseUrl = "http://118.25.40.159:7070/api";
 
-#if UNITY_WEBGL
+#if UNITY_WEBGL && !UNITY_EDITOR
         private ApiClient _api;
 
         private List<UserModel> _cacheUsers = new List<UserModel>();
@@ -111,7 +115,7 @@ namespace ChemLab.Managers
             _mysqlConfigPath = Path.Combine(Application.persistentDataPath, "mysql_config.json");
             LoadOrCreateMySqlConfigJson();
 
-#if UNITY_WEBGL
+#if UNITY_WEBGL && !UNITY_EDITOR
             _api = new ApiClient(apiBaseUrl);
 #else
             EnsureDatabaseExists();
@@ -503,6 +507,35 @@ VALUES (@user_id, @username, @password, @real_name, @email, @role, @create_time,
                 return false;
             }
 
+            // 注册后再查一遍数据库，确保数据确实写入成功（防止驱动/连接异常导致误判成功）
+            try
+            {
+                object scalar = _db.ExecuteScalar(
+                    "SELECT COUNT(*) FROM users WHERE LOWER(username)=LOWER(@username);",
+                    new Dictionary<string, object> { { "@username", username } });
+
+                long cnt = 0;
+                if (scalar != null && scalar != DBNull.Value)
+                {
+                    try { cnt = Convert.ToInt64(scalar); }
+                    catch { cnt = 0; }
+                }
+
+                if (enableAuthDebugLog)
+                    Debug.Log($"[DataManager] 注册后校验：username={username}, rawPassword={rawPassword}, md5={newUser.password}, count={cnt}");
+
+                if (cnt <= 0 || FindUserByUsername(username) == null)
+                {
+                    errorMsg = "注册写入后校验失败：数据库中未查到该用户数据。";
+                    return false;
+                }
+            }
+            catch (Exception e)
+            {
+                errorMsg = "注册写入后校验查询失败：" + e.Message;
+                return false;
+            }
+
             Debug.Log($"[DataManager] 新用户注册成功：{username}");
             return true;
         }
@@ -706,9 +739,47 @@ VALUES (@user_id, @username, @password, @real_name, @email, @role, @create_time,
             if (string.IsNullOrWhiteSpace(rawPassword))
             { errorMsg = "请输入密码！"; return false; }
 
+            // 直连 MySQL 模式下，_db 可能因初始化失败/顺序问题为 null（或在 Editor 下切换平台宏导致未初始化）
+            if (_db == null)
+            {
+                try
+                {
+                    EnsureDatabaseExists();
+                    InitMySql();
+                    EnsureSchema();
+                    EnsureAdminUser();
+                }
+                catch (Exception e)
+                {
+                    errorMsg = "数据库初始化失败：" + e.Message;
+                    return false;
+                }
+            }
+            if (_db == null)
+            {
+                errorMsg = "数据库未初始化，无法登录。";
+                return false;
+            }
+
+            if (enableAuthDebugLog)
+            {
+                string cfg = _mysqlConfigPath ?? "";
+                Debug.Log($"[AuthDebug] Login start. cfg={cfg}, host={mysqlHost}, port={mysqlPort}, db={mysqlDatabase}, user={mysqlUser}, username={username}");
+                Debug.Log($"[AuthDebug] Input password md5={MD5Encrypt(rawPassword)}");
+            }
+
             var user = FindUserByUsername(username);
             if (user == null)
             { errorMsg = "用户名不存在！"; return false; }
+
+            if (enableAuthDebugLog)
+            {
+                string stored = user.password ?? "";
+                string storedPreview = stored.Length <= 8 ? stored : stored.Substring(0, 8) + "...";
+                string inputMd5 = MD5Encrypt(rawPassword);
+                string inputPreview = inputMd5.Length <= 8 ? inputMd5 : inputMd5.Substring(0, 8) + "...";
+                Debug.Log($"[AuthDebug] Found userId={user.userId}, isActive={user.isActive}, role={user.role}, storedPwdMd5={storedPreview}, inputPwdMd5={inputPreview}");
+            }
 
             if (!user.isActive)
             { errorMsg = "该账号已被禁用，请联系管理员！"; return false; }
@@ -952,9 +1023,11 @@ WHERE record_id=@record_id;",
 
         public IEnumerator LoginAsync(string username, string rawPassword, bool isAdmin, Action<bool, string> onDone)
         {
-#if UNITY_WEBGL
+#if UNITY_WEBGL && !UNITY_EDITOR
             bool ok = false;
             string err = "";
+            if (enableAuthDebugLog)
+                Debug.Log($"[AuthDebug] WebGL Login POST: {apiBaseUrl.Trim().TrimEnd('/')}/login username={username} password={rawPassword}");
             yield return _api.PostJson("/login",
                 JsonUtility.ToJson(new LoginRequest { username = username, password = rawPassword }),
                 (succ, e2, text) =>
@@ -989,7 +1062,7 @@ WHERE record_id=@record_id;",
 #endif
         }
 
-#if UNITY_WEBGL
+#if UNITY_WEBGL && !UNITY_EDITOR
         [Serializable] private class LoginRequest { public string username; public string password; }
         [Serializable] private class LoginResponse { public bool ok; public string error; public UserDto user; }
 

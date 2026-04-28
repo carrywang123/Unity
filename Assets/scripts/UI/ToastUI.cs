@@ -55,6 +55,13 @@ namespace ChemLab.UI
                 _canvasGroup.interactable   = false;
                 _canvasGroup.blocksRaycasts = false;
             }
+
+            // 确保文本使用项目统一字体，并清空可能被误设置的材质（常见“显示乱码/错位”来源）
+            if (messageText != null)
+            {
+                messageText.font = Utils.UIFont.Get();
+                messageText.material = null;
+            }
             gameObject.SetActive(false);
         }
 

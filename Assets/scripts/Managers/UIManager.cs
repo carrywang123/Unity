@@ -505,7 +505,14 @@ namespace ChemLab.Managers
 
         private IEnumerator ToastCoroutine(string message, float duration)
         {
-            if (toastText  != null) toastText.text = message;
+            if (toastText != null)
+            {
+                // 修复：某些字体/材质引用丢失或被错误替换时，会导致屏幕显示“乱码/错位”；
+                // 这里每次展示前强制回到项目统一字体，并清空自定义材质以使用字体默认材质。
+                toastText.font = ChemLab.Utils.UIFont.Get();
+                toastText.material = null;
+                toastText.text = message;
+            }
             if (toastPanel != null) toastPanel.SetActive(true);
 
             yield return new WaitForSeconds(duration);

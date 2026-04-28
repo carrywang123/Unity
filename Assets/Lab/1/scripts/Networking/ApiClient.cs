@@ -23,7 +23,10 @@ namespace game_1
                 yield return req.SendWebRequest();
                 if (req.result != UnityWebRequest.Result.Success)
                 {
-                    onDone?.Invoke(false, req.error, null);
+                    string text = req.downloadHandler != null ? req.downloadHandler.text : "";
+                    string err = $"HTTP {(int)req.responseCode} {req.error}";
+                    if (!string.IsNullOrEmpty(text)) err += "\n" + text;
+                    onDone?.Invoke(false, err, text);
                     yield break;
                 }
                 onDone?.Invoke(true, "", req.downloadHandler != null ? req.downloadHandler.text : "");
@@ -42,7 +45,10 @@ namespace game_1
                 yield return req.SendWebRequest();
                 if (req.result != UnityWebRequest.Result.Success)
                 {
-                    onDone?.Invoke(false, req.error, null);
+                    string text = req.downloadHandler != null ? req.downloadHandler.text : "";
+                    string err = $"HTTP {(int)req.responseCode} {req.error}";
+                    if (!string.IsNullOrEmpty(text)) err += "\n" + text;
+                    onDone?.Invoke(false, err, text);
                     yield break;
                 }
                 onDone?.Invoke(true, "", req.downloadHandler != null ? req.downloadHandler.text : "");
